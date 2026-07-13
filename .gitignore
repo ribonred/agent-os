@@ -1,0 +1,7 @@
+/agent-core/*/target/
+result
+result-*
+.direnv/
+/agent-core/*/.venv/
+__pycache__/
+.pytest_cache/

@@ -8,6 +8,7 @@
   outputs = { self, nixpkgs }:
     let
       system = "x86_64-linux";
+      pkgs = import nixpkgs { inherit system; };
     in
     {
       # "host" is deliberately generic, not tied to a device model name --
@@ -24,6 +25,19 @@
           ./modules/tool-registry/postgres.nix
           ./modules/tool-registry/redis.nix
           ./modules/tool-registry/ollama.nix
+        ];
+      };
+
+      # Dev-time only -- never shipped on the device. `nix develop` gives a
+      # Rust toolchain for iterating on agent-core crates (e.g. hw-probe)
+      # with plain cargo build/run/test. The shipped host only ever gets
+      # the compiled output of those crates as its own Nix package, never
+      # a compiler.
+      devShells.${system}.default = pkgs.mkShell {
+        packages = with pkgs; [
+          cargo
+          rustc
+          rust-analyzer
         ];
       };
     };

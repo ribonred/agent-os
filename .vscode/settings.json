@@ -1,0 +1,3 @@
+{
+  "rust-analyzer.linkedProjects": ["agent-core/hw-probe/Cargo.toml"]
+}
