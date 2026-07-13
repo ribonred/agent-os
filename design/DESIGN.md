@@ -48,6 +48,62 @@ tokens above before inventing a new color -- if something doesn't fit,
 that's a sign the design system needs a deliberate addition, not a
 one-off hex value in a component.
 
+### Orb-only tokens
+
+The presence orb is the one element allowed a richer range than the
+two-accent rule, because it *is* the product's face -- a flat single-color
+glow reads as a template, not a presence. Its palette is still derived
+from the system, not free: it blends the two poles the product already
+stands on (cool competence = cyan, warm approachability = amber) through
+a violet bridge between them. These tokens are for the orb only -- they
+never appear on buttons, text, borders, or any other element.
+
+```
+--orb-cyan:   #3DDCFF   same as --accent -- the orb's dominant hue
+--orb-violet: #7A5CFA   the bridge -- exists only inside the orb's
+                         gradient, never as a standalone UI color
+--orb-warm:   #F6B673   same as --accent-warm -- a brief flare in the
+                         rotation, the "warmth" made literal
+--orb-deep:   #1B2A5E   deep blue -- the orb's shadowed side, gives the
+                         sphere its volume
+```
+
+## The presence orb
+
+The signature element -- every screen carries it, from first boot
+onward. Not a flat disc: a layered composition, each layer with one job.
+
+1. **Atmosphere** -- a large, very soft radial glow behind everything,
+   breathing slowly (the original idle pulse lives here now).
+2. **Core** -- the sphere itself: a conic gradient cycling
+   cyan → violet → deep blue → a brief warm flare → cyan, blurred
+   slightly and rotating slowly (~20s). Rotation is on the element
+   transform, not the gradient angle -- broader webview compat, no
+   @property dependency.
+3. **Shading** -- a radial specular highlight offset to the upper left
+   plus a darker lower edge, which is what makes it read as a sphere
+   with volume instead of a colored circle.
+4. **Ring** -- one thin, precise luminous ring just outside the core.
+   The machined, instrument-like counterpoint to the glow: the TARS
+   side of the personality, where the glow is the Jarvis side.
+5. **Light pool** (idle/home screen only) -- a soft horizontal ellipse
+   of light under the orb, as if it were an object sitting on the
+   counter it actually ships to. Grounds it in physical space.
+
+States (idle: slow breathe, listening: faster/brighter, thinking:
+different pattern, speaking: synced) modulate the atmosphere and core
+timing -- the layer structure never changes per state.
+
+## First-boot greeting
+
+The language-selection screen opens with a cycling greeting -- Halo,
+Hello, 你好, こんにちは, 안녕하세요, Xin chào, สวัสดี, … -- one word at a
+time, Indonesian first, fading between languages on the list. This is
+the one screen where the device cannot know the user's language yet, and
+the cycle *is* the answer: it says "I speak yours" in every supported
+script before a single choice is made. Fixed-height container so the
+swap never shifts layout.
+
 ## Typography
 
 System font stack (`-apple-system, "Segoe UI", Roboto, sans-serif` plus

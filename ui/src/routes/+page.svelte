@@ -1,40 +1,48 @@
 <script lang="ts">
-  // Idle-state placeholder only -- the presence indicator's other states
-  // (listening/thinking/speaking) and everything else on this screen
-  // (mandatory language/persona setup, then the actual assistant UI) are
-  // task 020 and beyond. This proves the design tokens render correctly
-  // and nothing more.
+  import { fade, fly } from "svelte/transition";
+  import PresenceOrb from "$lib/components/PresenceOrb.svelte";
+
+  // Idle/home screen -- the orb at rest on its surface. The other
+  // presence states (listening/thinking/speaking) and the actual
+  // assistant interaction arrive with the orchestrator work; this screen
+  // stays deliberately quiet until then.
+  let mounted = $state(false);
+  $effect(() => {
+    mounted = true;
+  });
 </script>
 
 <main>
-  <div class="presence" aria-hidden="true"></div>
+  {#if mounted}
+    <div in:fade={{ duration: 900 }}>
+      <PresenceOrb size={180} grounded />
+    </div>
+    <p class="invitation" in:fly={{ y: 10, duration: 700, delay: 500 }}>
+      Ready when you are.
+    </p>
+  {/if}
 </main>
 
 <style>
   main {
-    height: 100vh;
+    min-height: 100vh;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 4.5rem;
+    background: radial-gradient(
+      ellipse 90% 70% at 50% 40%,
+      transparent 55%,
+      rgba(0, 0, 0, 0.35) 100%
+    );
   }
 
-  .presence {
-    width: 120px;
-    height: 120px;
-    border-radius: 50%;
-    background: radial-gradient(circle, var(--accent) 0%, transparent 70%);
-    animation: breathe 4s ease-in-out infinite;
-  }
-
-  @keyframes breathe {
-    0%,
-    100% {
-      opacity: 0.5;
-      transform: scale(0.9);
-    }
-    50% {
-      opacity: 1;
-      transform: scale(1.05);
-    }
+  .invitation {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    font-weight: 300;
+    letter-spacing: 0.06em;
   }
 </style>
