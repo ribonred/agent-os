@@ -61,6 +61,16 @@ tier, a future mid-tier box, and DGX Spark without a rebuild.
       fully wired: no real vertical config exists yet to source this from,
       so it's hardcoded false in main(). Scaffolded for when that config
       exists, not a finished integration.
+      Bug caught and fixed while scoping the cloud provider (OpenRouter):
+      decide_default_routing() only checked tier + network reachability,
+      but a reachable network isn't a usable cloud tier without an API
+      key configured -- it would have leaned cloud and then just failed
+      at call time. Added has_cloud_credentials as a required input,
+      hardcoded false in main() until a real credential store exists.
+      This actually changed this box's live output: NUC-class profile
+      now correctly reports default_routing: "local" instead of "cloud",
+      since no credentials exist here yet -- not a regression, the
+      earlier "cloud" result was the bug.
 - [ ] Wire the routing decision into the agent orchestration loop
       -- blocked on the orchestrator itself not existing yet, which is a
       much bigger piece of work than this task. Made the prerequisite

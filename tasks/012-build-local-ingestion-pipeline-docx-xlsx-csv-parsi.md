@@ -49,15 +49,87 @@ need to match that choice for its own sake.
       rows of strings (not header-keyed dicts like csv/xlsx) since a
       docx table isn't reliably a data export the way a spreadsheet is --
       assuming row 0 is a header would often be wrong.
-- [ ] Postgres schema for the knowledge store: entities/facts/source-quote
+- [x] Postgres schema for the knowledge store: entities/facts/source-quote
       tables, proportionate to one small business's documents, not a full
       graph engine
-- [ ] Fixed-field extraction step reusing onboarding.md's safeguards
+      -- agent-core/knowledge-store/schema.sql. Normalized 3-table design:
+      entities (real identity, not repeated strings), sources (document-
+      level provenance), facts (entity_id + field + value, nullable value
+      = "not yet known", source_quote for traceability, confirmed bool).
+      Append-only by design, not upsert -- business details change, and
+      onboarding.md says treat everything as provisional; "current value"
+      is a query (latest confirmed row), not a destructive overwrite.
+      Validated for real: this box only has psql client tools installed,
+      no server (confirmed via dpkg, not assumed) and no running cluster
+      (pg_lsclusters empty). Pulled a real postgresql_18 via `nix shell`
+      instead of sudo apt-installing a system package, ran a throwaway
+      cluster in /tmp, applied the schema, and ran a realistic scenario
+      (onboarding fact + docx price fact + a price change) confirming
+      entity/source joins, NULL-as-unresolved querying, and history
+      preservation all work -- then tore the cluster down, no system
+      state left behind.
+- [~] Fixed-field extraction step reusing onboarding.md's safeguards
       (structured fields incl. "not yet known", confirm-back before
       commit, routed through hw-probe's tier/online output to decide
       local vs cloud model for the extraction call)
-- [ ] Google Drive ingestion -- explicitly gated on connectivity, separate
-      from the always-offline docx/xlsx/csv path
+      -- extraction.py built and split the same way hw-probe split GPU
+      detection: pure logic (build_extraction_request,
+      parse_extraction_response) fully unit-tested with fabricated model
+      responses (7 tests: well-formed, null-value-is-valid, empty facts,
+      malformed JSON, missing keys -- all explicit errors via
+      ExtractionParseError, never a silent empty result). Uses Ollama's
+      schema-constrained `format` field (verified against current docs,
+      not assumed) so the model structurally cannot return free prose --
+      this is the concrete mechanism behind onboarding.md's "fixed
+      fields, not free paraphrase" rule.
+      Cloud provider decided: OpenRouter, not a direct Claude/OpenAI/
+      Gemini integration -- one API key, one client, and OpenRouter
+      itself carries Hermes (nousresearch/hermes-4-70b, our default),
+      giving behavioral consistency with the local Ollama tier instead of
+      a personality shift when routing flips. Checked OpenRouter's terms
+      before committing: commercial use unrestricted, pass-through
+      provider pricing plus a flat 5.5% credit fee, no found restriction
+      on embedding in a third-party device. Real tradeoff disclosed, not
+      hidden: OpenRouter sits in the request path as a third party (their
+      own provider-logging policy applies), and an OpenRouter-side outage
+      takes down the whole cloud tier even if the underlying provider is
+      fine -- narrower blast radius than a direct integration's failure
+      mode, but not zero.
+      build_openrouter_extraction_request() built alongside the Ollama
+      version, sharing the same EXTRACTION_SCHEMA (verified identical via
+      a dedicated test) and the same prompt text -- confirmed against
+      OpenRouter's actual /api/v1/chat/completions + response_format.
+      json_schema contract, not assumed. call_openrouter_extract() is
+      unvalidated for the same reason as call_ollama_extract: no API key
+      exists anywhere in this project yet (that's the GUI piece, deferred
+      -- see below).
+      Routing wired: agent-core/ingest/routing.py shells out to the real
+      compiled hw-probe binary (two runtimes, one source of truth --
+      routing logic is not reimplemented in Python), parses its JSON, and
+      dispatches to call_ollama_extract or call_openrouter_extract based
+      on default_routing. First real cross-language integration point in
+      the project, validated end-to-end: a dedicated test actually runs
+      the compiled Rust binary and confirms the JSON round-trips into a
+      resolvable backend choice, not fabricated input. Dispatch logic
+      itself tested separately with controlled/monkeypatched probe
+      results (local->ollama, cloud->openrouter, cloud-without-api-key
+      raises explicitly rather than silently picking a default). 9 new
+      tests, 28 total in the ingest package, all passing.
+      Still NOT done: neither HTTP call (Ollama or OpenRouter) has been
+      exercised against a live backend -- that's still the real remaining
+      gap, unrelated to routing. Confirm-back-before-commit flow doesn't
+      exist. The GUI for entering an OpenRouter API key is deliberately
+      deferred -- first real Tauri UI work in the project, its own scoped
+      effort (task 016), not squeezed into this task.
+- [x] Google Drive ingestion -- decided closed, not built. OAuth + Drive
+      sync is a solved problem with mature existing tools (rclone, the
+      gdrive CLI) -- no reason to hand-roll custom OAuth/API code for it.
+      When Drive support is actually needed, wire one of those in rather
+      than building bespoke integration; whatever gets pulled down still
+      lands as a normal file and flows through the same docx/xlsx/csv
+      parsers already built, no new parsing path required. Still
+      correctly gated on connectivity by nature (can't sync Drive
+      offline), that part was never in question.
 
 ## Acceptance Criteria
 

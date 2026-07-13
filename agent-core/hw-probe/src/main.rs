@@ -142,12 +142,23 @@ enum RoutingLean {
 // not to a hardware probe. What this answers is narrower: absent any
 // other signal, should this device default toward local or cloud.
 //
+// has_cloud_credentials matters independently of `online`: a reachable
+// network is necessary but not sufficient to actually use the cloud tier
+// -- an OpenRouter API key also has to be configured. Without one, "lean
+// cloud" would just fail at the point of calling it, silently or
+// otherwise. Caught this before it became a real bug, not after.
+//
 // vertical_forces_offline is a placeholder parameter -- no real vertical
 // config exists yet to source it from. Wired here so the function has the
 // right shape when that config does exist, not because it does anything
 // today beyond what's tested.
-fn decide_default_routing(tier: &Tier, online: bool, vertical_forces_offline: bool) -> RoutingLean {
-    if vertical_forces_offline || !online {
+fn decide_default_routing(
+    tier: &Tier,
+    online: bool,
+    has_cloud_credentials: bool,
+    vertical_forces_offline: bool,
+) -> RoutingLean {
+    if vertical_forces_offline || !online || !has_cloud_credentials {
         return RoutingLean::Local;
     }
     match tier {
@@ -190,8 +201,13 @@ fn main() {
     };
     let tier = classify_tier(&profile);
     let online = is_online();
-    // No real vertical config exists yet -- hardcoded false until one does.
-    let default_routing = decide_default_routing(&tier, online, false);
+    // No real credential store or vertical config exists yet -- both
+    // hardcoded until they do. has_cloud_credentials=false is honest: this
+    // box has no OpenRouter key configured, so it correctly cannot lean
+    // cloud no matter how capable the network/tier look.
+    let has_cloud_credentials = false;
+    let default_routing =
+        decide_default_routing(&tier, online, has_cloud_credentials, false);
 
     let result = ProbeResult {
         logical_cores,
@@ -310,12 +326,12 @@ mod tests {
     }
 
     #[test]
-    fn low_tier_online_defaults_to_cloud() {
+    fn low_tier_online_with_credentials_defaults_to_cloud() {
         // The exact case from task 008's acceptance criteria: NUC-class
-        // hardware, online, no override -- should lean cloud without
-        // being told to.
+        // hardware, online, credentials configured, no override -- should
+        // lean cloud without being told to.
         assert_eq!(
-            decide_default_routing(&Tier::Low, true, false),
+            decide_default_routing(&Tier::Low, true, true, false),
             RoutingLean::Cloud
         );
     }
@@ -324,30 +340,41 @@ mod tests {
     fn low_tier_offline_falls_back_to_local() {
         // No cloud to reach even if the tier would normally prefer it.
         assert_eq!(
-            decide_default_routing(&Tier::Low, false, false),
+            decide_default_routing(&Tier::Low, false, true, false),
             RoutingLean::Local
         );
     }
 
     #[test]
-    fn mid_and_high_tier_default_local_even_when_online() {
+    fn low_tier_online_without_credentials_falls_back_to_local() {
+        // The actual bug this test exists to prevent: a reachable network
+        // is not the same as a usable cloud tier. No API key configured
+        // means cloud would just fail if attempted -- must not lean cloud.
         assert_eq!(
-            decide_default_routing(&Tier::Mid, true, false),
-            RoutingLean::Local
-        );
-        assert_eq!(
-            decide_default_routing(&Tier::High, true, false),
+            decide_default_routing(&Tier::Low, true, false, false),
             RoutingLean::Local
         );
     }
 
     #[test]
-    fn vertical_override_forces_local_regardless_of_tier_or_connectivity() {
+    fn mid_and_high_tier_default_local_even_when_online_with_credentials() {
+        assert_eq!(
+            decide_default_routing(&Tier::Mid, true, true, false),
+            RoutingLean::Local
+        );
+        assert_eq!(
+            decide_default_routing(&Tier::High, true, true, false),
+            RoutingLean::Local
+        );
+    }
+
+    #[test]
+    fn vertical_override_forces_local_regardless_of_tier_connectivity_or_credentials() {
         // A money/health vertical saying "offline only" wins even for a
-        // high-tier, online device that would otherwise be fine using
-        // cloud.
+        // high-tier, online, credentialed device that would otherwise be
+        // fine using cloud.
         assert_eq!(
-            decide_default_routing(&Tier::High, true, true),
+            decide_default_routing(&Tier::High, true, true, true),
             RoutingLean::Local
         );
     }
