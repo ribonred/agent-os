@@ -40,5 +40,49 @@
           rust-analyzer
         ];
       };
+
+      # Patches an already-built ui/ Tauri binary (built with the system
+      # rustup/cargo-tauri toolchain, per the deliberate decision not to
+      # fight Tauri's GTK/webkit deps into a Nix devShell) so it can
+      # actually run on NixOS. A normal-distro binary is linked against
+      # /lib/x86_64-linux-gnu/*.so and /lib64/ld-linux-x86-64.so.2, which
+      # don't exist on NixOS's non-FHS layout -- this rewrites the ELF
+      # interpreter and RPATH to point at matching libraries from our own
+      # pinned nixpkgs, so the patched result stays reproducible even
+      # though the build itself wasn't done via Nix.
+      #
+      # Usage: nix run .#patch-ui-for-nixos -- /path/to/ui/binary
+      packages.${system}.patch-ui-for-nixos = pkgs.writeShellApplication {
+        name = "patch-ui-for-nixos";
+        runtimeInputs = [ pkgs.patchelf ];
+        text = ''
+          if [ "$#" -ne 1 ]; then
+            echo "usage: patch-ui-for-nixos <path-to-binary>" >&2
+            exit 1
+          fi
+          BINARY="$1"
+          INTERPRETER="${pkgs.stdenv.cc.bintools.dynamicLinker}"
+          RPATH="${pkgs.lib.makeLibraryPath [
+            pkgs.webkitgtk_4_1
+            pkgs.gtk3
+            pkgs.cairo
+            pkgs.gdk-pixbuf
+            pkgs.glib
+            pkgs.glib-networking
+            pkgs.dbus
+            pkgs.openssl
+            pkgs.librsvg
+            pkgs.at-spi2-atk
+            pkgs.atkmm
+            pkgs.harfbuzz
+            pkgs.libsoup_3
+            pkgs.pango
+            pkgs.stdenv.cc.cc.lib
+          ]}"
+          patchelf --set-interpreter "$INTERPRETER" --set-rpath "$RPATH" "$BINARY"
+          echo "Patched $BINARY for NixOS."
+          echo "Verify with: ldd $BINARY"
+        '';
+      };
     };
 }

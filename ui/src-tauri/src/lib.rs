@@ -23,6 +23,10 @@ pub fn run() {
                 ])
                 .build(),
         )
+        // Non-secret preferences only (language, persona) -- per
+        // design/DESIGN.md, the OpenRouter API key needs OS-keyring-backed
+        // storage instead, not this plain-file store.
+        .plugin(tauri_plugin_store::Builder::default().build())
         .invoke_handler(tauri::generate_handler![greet])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

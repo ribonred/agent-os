@@ -1,13 +1,14 @@
 ---
 id: "017"
 title: "Scaffold Tauri UI shell (Svelte+TS+bun) via official CLI"
-status: in-progress
+status: completed
 priority: high
 effort: medium
 phase: ui-shell
 dependencies: []
 tags: ["tauri", "svelte", "gui"]
 created_at: 2026-07-13
+completed_at: 2026-07-13
 ---
 
 # Scaffold Tauri UI shell (Svelte+TS+bun) via official CLI
@@ -69,5 +70,12 @@ system toolchain (not fought through Nix), logging wired in from day one.
 - [x] Builds clean through Rust compile, frontend type-check, frontend
       build, and full Tauri bundle (two of three Linux package formats)
 - [x] Logging infrastructure exists before it's needed, not after a bug
-- [ ] Visual rendering confirmed -- pending Red running `bun run tauri
-      dev` interactively and actually seeing the window
+- [x] Visual rendering confirmed -- `bun run tauri dev` hit a real link
+      error first (`ld.bfd`/`libstdc++.so.6` pulled from the Nix store,
+      GLIBC_2.36/2.38 symbols missing from the system's older glibc --
+      root cause was `CC` left set in an already-open terminal from
+      before ui/.envrc existed, not a code problem). Reproduced the
+      mechanism in a simulated fresh shell (CC correctly empty inside
+      ui/, cc resolves to /usr/bin/cc) before Red confirmed a terminal
+      refresh fixed it on the real machine. Window now confirmed
+      rendering for real.

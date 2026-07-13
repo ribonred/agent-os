@@ -38,6 +38,18 @@
     loadModels = [ "hermes3:3b" ];
   };
 
+  # Required for the actual supported-language list (brain/onboarding.md):
+  # 5 of the 10 languages need non-Latin scripts, and design/DESIGN.md
+  # deliberately relies on the system font stack instead of a bundled
+  # webfont -- that choice only works if the system actually has these
+  # installed. noto-fonts alone covers Thai/Devanagari/Latin/Vietnamese
+  # diacritics; CJK is a separate, much larger package upstream splits
+  # out on purpose, hence listed separately here.
+  fonts.packages = with pkgs; [
+    noto-fonts
+    noto-fonts-cjk-sans
+  ];
+
   # Bumping this requires reading the NixOS release notes for breaking
   # changes first -- do not upgrade blindly.
   system.stateVersion = "26.05";
