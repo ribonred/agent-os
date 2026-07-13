@@ -1,0 +1,15 @@
+name: redis
+description: >
+  In-memory store for caching, session state, and short-lived queues --
+  used internally by the agent runtime only. Not to be exposed to end
+  users as a hosted/managed service -- Redis's license terms permit
+  internal use but restrict offering it as a service to third parties.
+when_to_use: >
+  The agent needs fast ephemeral state: conversation session cache,
+  rate limiting, a work queue between agent steps.
+when_not_to_use: >
+  Anything that needs to survive a factory reset or be queryable later --
+  that belongs in postgres or the knowledge/graph store.
+nix_module: modules/tool-registry/redis.nix
+health_check: "redis-cli -h 127.0.0.1 ping"
+status: enabled_by_default

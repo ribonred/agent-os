@@ -1,0 +1,16 @@
+name: ollama
+description: >
+  Local LLM runtime -- serves the agent's on-device models over a local
+  API. What's loaded and whether acceleration is used are host-tier
+  decisions, not fixed by this entry.
+when_to_use: >
+  Inference needs to happen without a network round-trip, or the
+  local/online routing policy has decided a given request should stay
+  local.
+when_not_to_use: >
+  Don't assume a loaded model is capable enough for the task -- weak-tier
+  hosts only carry small cuts. The routing policy decides when to fall
+  back to a cloud model instead of trusting whatever's loaded locally.
+nix_module: modules/tool-registry/ollama.nix
+health_check: "curl -sf http://127.0.0.1:11434/api/version"
+status: enabled_by_default

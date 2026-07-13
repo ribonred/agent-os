@@ -1,0 +1,21 @@
+dir: ./tasks
+phases:
+  - id: bootstrap
+    name: "Bootstrap"
+    description: "Repo skeleton, flake, tool registry stub"
+  - id: nixos-nuc
+    name: "NixOS on NUC"
+    description: "Validate NixOS boots and runs base infra on the NUC11PAHi3"
+  - id: agent-core
+    name: "Agent core"
+    description: "Constitution, tool registry runtime, cloud/local LLM routing"
+  - id: ui-shell
+    name: "Tauri UI shell"
+    description: "Kiosk-style assistant UI, own file manager"
+  - id: dgx-track
+    name: "DGX Spark track"
+    description: "Nix-as-a-layer on DGX OS, secondary to NixOS mini-PC track"
+  - id: packaging
+    name: "Hardware lock & MSI packaging"
+    description: "Device identity lock, factory image, SKU story"
+

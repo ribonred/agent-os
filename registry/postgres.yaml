@@ -1,0 +1,14 @@
+name: postgres
+description: >
+  Relational database for structured records -- patients, inventory,
+  transactions, ledgers, anything with defined fields and relationships.
+when_to_use: >
+  The user's task needs to store or query structured, relational data with
+  more than a handful of fields, or needs transactional guarantees (e.g.
+  money movements, appointment bookings).
+when_not_to_use: >
+  Free-text notes, documents, or loosely structured knowledge the user is
+  feeding in -- that belongs in the knowledge/graph store, not here.
+nix_module: modules/tool-registry/postgres.nix
+health_check: "pg_isready -h localhost"
+status: enabled_by_default
