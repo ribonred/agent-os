@@ -6,3 +6,6 @@ result-*
 __pycache__/
 .pytest_cache/
 .playwright-mcp/
+
+# Local dev cloud key file (AGENTIC_OS_CLOUD_KEYS_FILE target) -- real secrets, never committed
+cloud-keys.toml

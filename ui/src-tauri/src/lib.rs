@@ -1,3 +1,5 @@
+mod cloud_key;
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -27,7 +29,12 @@ pub fn run() {
         // design/DESIGN.md, the OpenRouter API key needs OS-keyring-backed
         // storage instead, not this plain-file store.
         .plugin(tauri_plugin_store::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            cloud_key::cloud_key_save,
+            cloud_key::cloud_key_status,
+            cloud_key::cloud_key_delete
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

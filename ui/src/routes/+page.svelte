@@ -20,6 +20,9 @@
     <p class="invitation" in:fly={{ y: 10, duration: 700, delay: 500 }}>
       Ready when you are.
     </p>
+    <a class="cloud-link" href="/settings/cloud" in:fade={{ delay: 900 }}>
+      Cloud settings
+    </a>
   {/if}
 </main>
 
@@ -44,5 +47,20 @@
     font-size: 0.95rem;
     font-weight: 300;
     letter-spacing: 0.06em;
+  }
+
+  .cloud-link {
+    position: fixed;
+    right: 1.5rem;
+    bottom: 1.25rem;
+    color: color-mix(in srgb, var(--text-secondary) 60%, transparent);
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-decoration: none;
+  }
+
+  .cloud-link:hover,
+  .cloud-link:focus-visible {
+    color: var(--text-primary);
   }
 </style>

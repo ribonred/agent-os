@@ -39,6 +39,10 @@
           rustc
           rust-analyzer
         ];
+        # rust-analyzer needs the stdlib sources to resolve std/core
+        # symbols; nixpkgs' rustc doesn't bundle them in its sysroot the
+        # way rustup does, so point at them explicitly.
+        RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
       };
 
       # Patches an already-built ui/ Tauri binary (built with the system

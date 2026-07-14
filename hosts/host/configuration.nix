@@ -28,11 +28,6 @@
     bun
   ];
 
-  # This host has no GPU/NPU (Iris Xe integrated graphics only), so the
-  # CPU-only package variant is set explicitly rather than relying on a
-  # default. hermes3:3b is the smallest available Hermes cut -- appropriate
-  # for this tier, not a production-capable local model. Heavier cuts and
-  # GPU/ROCm/CUDA package variants belong on hosts with real acceleration.
   services.ollama = {
     package = pkgs.ollama-cpu;
     loadModels = [ "hermes3:3b" ];
@@ -49,6 +44,29 @@
     noto-fonts
     noto-fonts-cjk-sans
   ];
+
+  # The UI shell stores the cloud API key in the OS keyring (Secret
+  # Service API) rather than a plain file -- that API is only available
+  # if a keyring daemon is actually running. Without this, saving a key
+  # in the UI fails loudly instead of silently degrading to insecure
+  # storage. Auto-unlock on login (PAM integration) is a follow-up once
+  # the device's session/login flow is decided -- until then a first
+  # keyring access may prompt to set a keyring password on desktop
+  # sessions.
+  services.gnome.gnome-keyring.enable = true;
+
+  # A device can also ship with a vendor-provisioned cloud key so the
+  # buyer never has to create an API account: the UI shell reads
+  # /etc/agentic-os/cloud-keys.toml (root-owned, mode 0600) as a fallback
+  # when no user key is in the keyring. The actual key is written at
+  # deployment/factory time by the provisioning process, never committed
+  # to this repository. Expected shape:
+  #
+  #   [openrouter]
+  #   api_key = "..."
+  #
+  # A secrets-management tool (e.g. sops-nix/agenix) should own writing
+  # that file once the factory provisioning flow is designed.
 
   # Bumping this requires reading the NixOS release notes for breaking
   # changes first -- do not upgrade blindly.
