@@ -1,13 +1,14 @@
 ---
 id: "020"
 title: "Build mandatory language + persona selection screens (onboarding.md)"
-status: in-progress
+status: completed
 priority: high
 effort: medium
 phase: ui-shell
 dependencies: ["017"]
 tags: ["svelte", "onboarding"]
 created_at: 2026-07-13
+completed_at: 2026-07-14
 ---
 
 # Build mandatory language + persona selection screens (onboarding.md)

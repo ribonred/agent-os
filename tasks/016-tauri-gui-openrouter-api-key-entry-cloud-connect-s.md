@@ -1,7 +1,7 @@
 ---
 id: "016"
 title: "Tauri GUI: OpenRouter API key entry / cloud-connect screen"
-status: pending
+status: in-progress
 priority: medium
 effort: large
 phase: ui-shell

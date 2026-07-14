@@ -1,13 +1,14 @@
 ---
 id: "021"
 title: "Elevate UI to signature visual identity (layered presence orb, greeting cycle, staged motion)"
-status: in-progress
+status: completed
 priority: high
 effort: medium
 phase: ui-shell
 dependencies: []
 tags: ["svelte", "design", "gui"]
 created_at: 2026-07-13
+completed_at: 2026-07-14
 ---
 
 # Elevate UI to signature visual identity (layered presence orb, greeting cycle, staged motion)
