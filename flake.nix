@@ -9,22 +9,35 @@
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
+
+      # The agent orchestrator daemon (agent-core/orchestrator). src is
+      # the whole agent-core tree because the crate has path dependencies
+      # on its sibling crates (hw-probe, cloud-key) -- one shared
+      # implementation, so they must be vendored together.
+      orchestrator = pkgs.rustPlatform.buildRustPackage {
+        pname = "agentic-orchestrator";
+        version = "0.1.0";
+        src = ./agent-core;
+        cargoRoot = "orchestrator";
+        buildAndTestSubdir = "orchestrator";
+        cargoLock.lockFile = ./agent-core/orchestrator/Cargo.lock;
+      };
     in
     {
       # "host" is deliberately generic, not tied to a device model name --
       # the running agent is what decides local-vs-online LLM behavior at
       # runtime based on detected hardware, not the OS config. Currently
-      # deployed to a SWNUC11PAHi3000 dev box for validation; see
-      # hosts/host/hardware-configuration.nix before deploying to real
-      # hardware -- it is a placeholder, not real disk layout.
+      # deployed to a SWNUC11PAHi3000 dev box for validation.
       nixosConfigurations.host = nixpkgs.lib.nixosSystem {
         inherit system;
+        specialArgs = { orchestratorPackage = orchestrator; };
         modules = [
           ./hosts/host/configuration.nix
           ./hosts/host/hardware-configuration.nix
           ./modules/tool-registry/postgres.nix
           ./modules/tool-registry/redis.nix
           ./modules/tool-registry/ollama.nix
+          ./modules/orchestrator.nix
         ];
       };
 
@@ -70,6 +83,8 @@
       # though the build itself wasn't done via Nix.
       #
       packages.${system} = {
+        inherit orchestrator;
+
         installer-iso =
           self.nixosConfigurations.installer.config.system.build.isoImage;
 
