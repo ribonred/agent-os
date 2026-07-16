@@ -28,6 +28,20 @@
         ];
       };
 
+      # Self-installing provisioning image: boots, wipes the target's
+      # internal disk, installs the complete host system from a closure
+      # baked into the ISO (fully offline), powers off. One image
+      # provisions any number of identical units -- there is no per-unit
+      # config; hardware-configuration.nix mounts by the filesystem
+      # labels the installer creates. Build with: nix build .#installer-iso
+      nixosConfigurations.installer = nixpkgs.lib.nixosSystem {
+        inherit system;
+        specialArgs = {
+          hostSystem = self.nixosConfigurations.host.config.system.build.toplevel;
+        };
+        modules = [ ./hosts/installer/installer.nix ];
+      };
+
       # Dev-time only -- never shipped on the device. `nix develop` gives a
       # Rust toolchain for iterating on agent-core crates (e.g. hw-probe)
       # with plain cargo build/run/test. The shipped host only ever gets
@@ -55,8 +69,12 @@
       # pinned nixpkgs, so the patched result stays reproducible even
       # though the build itself wasn't done via Nix.
       #
+      packages.${system} = {
+        installer-iso =
+          self.nixosConfigurations.installer.config.system.build.isoImage;
+
       # Usage: nix run .#patch-ui-for-nixos -- /path/to/ui/binary
-      packages.${system}.patch-ui-for-nixos = pkgs.writeShellApplication {
+      patch-ui-for-nixos = pkgs.writeShellApplication {
         name = "patch-ui-for-nixos";
         runtimeInputs = [ pkgs.patchelf ];
         text = ''
@@ -87,6 +105,7 @@
           echo "Patched $BINARY for NixOS."
           echo "Verify with: ldd $BINARY"
         '';
+        };
       };
     };
 }

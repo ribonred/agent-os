@@ -1,34 +1,39 @@
 { lib, ... }:
 
 # ==========================================================================
-# PLACEHOLDER -- NOT REAL HARDWARE DATA.
+# Device-class hardware profile -- deliberately NOT per-unit.
 #
-# This file exists only so `nix flake check` / `nix build` can evaluate
-# without a physical disk attached. Every value below is fabricated.
+# The product installs onto many identical units from one self-installing
+# USB image, so nothing in this file may be unit-specific. The installer
+# (hosts/installer/) formats every device with the same GPT layout and
+# filesystem labels, and this file mounts by those labels -- there are no
+# per-machine UUIDs to regenerate. Do not replace this with raw
+# `nixos-generate-config` output from a bench unit: that would pin one
+# machine's UUIDs and break the image-installs-anywhere model.
 #
-#   1. Boot the HOST from a NixOS installer USB.
-#   2. Run `nixos-generate-config --root /mnt` (after partitioning/mounting).
-#   3. Replace this entire file with the generated one (real UUIDs, real
-#      fileSystems, real boot.loader settings).
-#
-# Do not hand-edit fake UUIDs to "look real" -- that hides the fact that
-# this hasn't been validated against the hardware.
+# Labels are the contract between installer and system:
+#   BOOT  -> FAT32 ESP, mounted at /boot
+#   nixos -> ext4 root
+# Change them in both places or not at all.
 # ==========================================================================
 
 {
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 
-  boot.initrd.availableKernelModules = [ "xhci_pci" "nvme" "usb_storage" "sd_mod" ];
-  boot.kernelModules = [ ];
+  # Broad module set for Intel NUC-class mini-PCs: NVMe and SATA storage,
+  # USB boot/input, Thunderbolt. Wider than any single unit needs, so the
+  # same image boots across storage variants of the same SKU.
+  boot.initrd.availableKernelModules = [ "xhci_pci" "thunderbolt" "nvme" "usb_storage" "usbhid" "sd_mod" "ahci" ];
+  boot.kernelModules = [ "kvm-intel" ];
 
   fileSystems."/" = {
-    device = "/dev/disk/by-label/PLACEHOLDER-ROOT";
+    device = "/dev/disk/by-label/nixos";
     fsType = "ext4";
   };
 
   fileSystems."/boot" = {
-    device = "/dev/disk/by-label/PLACEHOLDER-BOOT";
+    device = "/dev/disk/by-label/BOOT";
     fsType = "vfat";
   };
 
@@ -36,4 +41,7 @@
 
   nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
   hardware.cpu.intel.updateMicrocode = lib.mkDefault true;
+  # Wifi/Bluetooth on these boards need vendor firmware blobs; without
+  # this the installed device has ethernet only.
+  hardware.enableRedistributableFirmware = true;
 }
