@@ -1,5 +1,24 @@
 { pkgs, lib, modulesPath, hostSystem, ... }:
 
+let
+  # Optional: bake a vendor cloud-key file into the image so a freshly
+  # imaged unit comes up with cloud access already working:
+  #
+  #   AGENTIC_OS_BAKE_CLOUD_KEYS=/abs/path/cloud-keys.toml \
+  #     nix build .#installer-iso --impure
+  #
+  # Understand the costs before using it: the key becomes part of the ISO
+  # file AND of the build machine's world-readable Nix store, and every
+  # unit imaged from that stick shares the same key. Acceptable for bench
+  # provisioning and small batches; customer-scale production should
+  # instead inject per-unit keys as a separate factory step after imaging.
+  # A pure build (no env var, no --impure) produces a generic, secret-free
+  # image -- that stays the default. The provisioned flavor gets a
+  # distinct ISO name so the two can never be confused on a shelf.
+  bakedKeyFile = builtins.getEnv "AGENTIC_OS_BAKE_CLOUD_KEYS";
+  bakeKeys = bakedKeyFile != "";
+in
+
 # Self-installing USB image: boot it on a factory-fresh unit and it wipes
 # the internal disk, installs the full agentic-os system, and powers off.
 # No keyboard, no network, no per-unit steps -- one image provisions any
@@ -20,6 +39,16 @@
   imports = [ "${modulesPath}/installer/cd-dvd/installation-cd-minimal.nix" ];
 
   isoImage.storeContents = [ hostSystem ];
+
+  # Provisioned flavor: the key file rides at the ISO root (the live
+  # system mounts the boot medium at /iso), outside the Nix store of the
+  # installed system -- the install script places it with proper
+  # ownership/mode where the UI shell's fallback lookup expects it.
+  isoImage.contents = lib.optional bakeKeys {
+    source = /. + bakedKeyFile;
+    target = "/cloud-keys.toml";
+  };
+  image.fileName = lib.mkIf bakeKeys (lib.mkForce "agentic-os-provisioned-installer.iso");
 
   systemd.services.agentic-install = {
     description = "One-shot agentic-os installer";
@@ -89,6 +118,14 @@
       # and installs the bootloader, no network involved. --no-root-passwd
       # because user auth is declared in the system config itself.
       nixos-install --system ${hostSystem} --no-root-passwd
+
+      # Provisioned flavor only: place the vendor cloud-key file where the
+      # UI shell's fallback lookup expects it, with the ownership/mode the
+      # shell's permission check wants (root-owned, 0600).
+      if [ -f /iso/cloud-keys.toml ]; then
+        echo "Installing vendor-provisioned cloud keys."
+        install -D -m 600 -o root -g root /iso/cloud-keys.toml /mnt/etc/agentic-os/cloud-keys.toml
+      fi
 
       echo ""
       echo "=============================================================="

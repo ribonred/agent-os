@@ -1,77 +1,84 @@
 ---
 id: "002"
-title: "Generate and commit hardware-configuration.nix from physical NUC"
+title: "Self-installing USB image: one-shot factory install, no per-unit config"
 status: in-progress
 priority: high
 effort: small
 phase: bootstrap
 dependencies: ["001"]
-tags: ["nix", "nixos"]
+tags: ["nix", "nixos", "installer"]
 created_at: 2026-07-13
 ---
 
-# Generate and commit hardware-configuration.nix from physical NUC
+# Self-installing USB image: one-shot factory install, no per-unit config
 
 ## Objective
 
-Replace the placeholder `hosts/host/hardware-configuration.nix` (fabricated
-UUIDs, exists only so the flake evaluates) with the real file generated on
-the physical SWNUC11PAHi3000. Until this lands, `nixosConfigurations.host`
-builds but cannot boot real hardware, which also blocks task 018's final
-acceptance (patched Tauri binary launching on the device).
+Originally "generate hardware-configuration.nix on the physical NUC" --
+rescoped on a product decision: per-unit `nixos-generate-config` is a dev
+workflow that cannot scale to shipping many identical units. Instead the
+install must be one-shot and unit-agnostic: boot a USB stick, walk away,
+the device is fully provisioned.
 
-This task requires hands on the physical machine -- it cannot be done from
-the dev box. Everything below is the bench runbook.
+Design that makes this possible: the installer creates the same GPT
+layout with fixed filesystem labels (`BOOT`, `nixos`) on every unit, and
+`hosts/host/hardware-configuration.nix` mounts by those labels -- a
+device-class profile with zero per-machine data (no UUIDs). The full host
+system closure is baked into the ISO, so the install is offline and
+byte-identical across units.
 
 ## Tasks
 
-- [ ] Flash a NixOS 26.05 minimal ISO (x86_64) to USB. From Windows use
-      Rufus in **dd mode** (WSL cannot write raw USB block devices);
-      from Linux: `sudo dd if=nixos-minimal-*.iso of=/dev/sdX bs=4M
-      status=progress conv=fsync`.
-- [ ] Boot the NUC from the stick: F10 at power-on for the boot menu,
-      UEFI boot enabled in BIOS (F2).
-- [ ] Partition the internal disk (likely `/dev/nvme0n1`) -- UEFI layout:
-
-      ```
-      sudo parted /dev/nvme0n1 -- mklabel gpt
-      sudo parted /dev/nvme0n1 -- mkpart ESP fat32 1MB 512MB
-      sudo parted /dev/nvme0n1 -- set 1 esp on
-      sudo parted /dev/nvme0n1 -- mkpart root ext4 512MB 100%
-      sudo mkfs.fat -F 32 -n BOOT /dev/nvme0n1p1
-      sudo mkfs.ext4 -L nixos /dev/nvme0n1p2
-      sudo mount /dev/disk/by-label/nixos /mnt
-      sudo mkdir -p /mnt/boot
-      sudo mount /dev/disk/by-label/BOOT /mnt/boot
-      ```
-
-      This wipes the disk -- confirm nothing on the NUC needs saving first.
-- [ ] `sudo nixos-generate-config --root /mnt`
-- [ ] Get `/mnt/etc/nixos/hardware-configuration.nix` back into this repo
-      replacing `hosts/host/hardware-configuration.nix` wholesale (scp it
-      to the dev box, or clone the repo on the installer and edit there).
-      Do not merge with the placeholder -- replace the entire file; the
-      placeholder's header says exactly this.
-- [ ] Install from the flake (needs network on the installer):
-
-      ```
-      nix-shell -p git
-      git clone <repo> && cd agentic-os
-      sudo nixos-install --flake .#host
-      ```
-- [ ] Reboot without the stick; log in as `admin` / `changeme` (and note
-      the standing warning in configuration.nix: decide real auth before
-      this box leaves the dev bench).
-- [ ] Commit the real hardware-configuration.nix and confirm
-      `nix build .#nixosConfigurations.host.config.system.build.toplevel`
-      still succeeds from the repo with the real file in place.
+- [x] Rewrite `hosts/host/hardware-configuration.nix` as a device-class
+      profile: label-based mounts, broad NUC-class initrd module set
+      (NVMe + SATA + USB + Thunderbolt), redistributable firmware for
+      wifi/bluetooth. Header comment forbids replacing it with raw
+      per-unit `nixos-generate-config` output.
+- [x] `hosts/installer/installer.nix`: auto-install systemd service on
+      the minimal installer ISO -- picks the internal disk (NVMe first,
+      non-removable SATA fallback, loud failure if neither), 15-second
+      abort countdown on the console, wipe + partition + label, install
+      from the baked-in closure with `nixos-install --system`, power off.
+- [x] Flake: `nixosConfigurations.installer` (host toplevel passed in via
+      specialArgs) and `packages.x86_64-linux.installer-iso`.
+      Build: `nix build .#installer-iso`.
+- [x] End-to-end VM validation, twice on independent hypervisors:
+      QEMU/OVMF (blank NVMe -> unattended install -> self-poweroff ->
+      booted from disk; SSH up, hostname agentic-os, postgresql/redis/
+      ollama all active) and VMware (live run: installed, powered off,
+      booted to login). Both proved the image is UEFI-only by
+      construction -- VMware's default BIOS firmware + LSI SCSI disk
+      reproduces "Operating System Not Found"; the fix is
+      firmware = "efi" and an NVMe virtual disk. Real NUCs boot UEFI by
+      default, but any bench VM must match.
+- [ ] Flash the ISO (Rufus dd mode from Windows / `dd` from Linux) and
+      boot the physical NUC with it. Verify: installs unattended, powers
+      off, then boots from internal disk with no USB attached.
 
 ## Acceptance Criteria
 
-- [ ] `hosts/host/hardware-configuration.nix` contains real
-      `nixos-generate-config` output from the physical NUC: real
-      filesystem UUIDs/labels, real `boot.initrd.availableKernelModules`
-      -- no PLACEHOLDER strings remain anywhere in the file.
-- [ ] The NUC boots the installed system from its internal disk with no
-      installer USB attached.
-- [ ] The flake's toplevel closure still builds with the real file.
+- [x] No per-unit configuration anywhere: the same ISO provisions any
+      unit of the SKU; hardware-configuration.nix contains no UUIDs or
+      other machine-specific values.
+- [x] `nix build .#installer-iso` succeeds; install path is fully offline
+      (closure in `isoImage.storeContents`).
+- [ ] Physical NUC provisioned by the stick boots to the installed system
+      -- hands-on validation at the bench.
+
+## Notes
+
+- The image is a provisioning tool that destroys the target disk on boot;
+  it must never be handed to a customer.
+- Two build flavors. The pure build is generic and secret-free (safe
+  default). An opt-in provisioned flavor bakes a vendor cloud-key file
+  into the image (`AGENTIC_OS_BAKE_CLOUD_KEYS=/path nix build
+  .#installer-iso --impure`); the installer places it at
+  `/etc/agentic-os/cloud-keys.toml` (root, 0600) where the UI shell's
+  fallback lookup expects it. The provisioned ISO gets a distinct file
+  name so the flavors can't be confused. Costs are documented in
+  installer.nix: the key lives in the ISO and the build machine's Nix
+  store, and all units imaged from one stick share it -- a bench/small-
+  batch tool, not the customer-scale answer (that's per-unit keys as a
+  separate factory step after imaging).
+- The standing auth warning in configuration.nix still applies: admin /
+  changeme is a bench credential, not shippable.
