@@ -48,7 +48,11 @@ in
     source = /. + bakedKeyFile;
     target = "/cloud-keys.toml";
   };
-  image.fileName = lib.mkIf bakeKeys (lib.mkForce "agentic-os-provisioned-installer.iso");
+  # image.baseName, not image.fileName: the iso builder constructs its
+  # output name from baseName directly and never reads fileName --
+  # verified in the pinned nixpkgs source (iso-image.nix), after the
+  # fileName override eval'd fine but the built artifact ignored it.
+  image.baseName = lib.mkIf bakeKeys (lib.mkForce "agentic-os-provisioned-installer");
 
   systemd.services.agentic-install = {
     description = "One-shot agentic-os installer";
