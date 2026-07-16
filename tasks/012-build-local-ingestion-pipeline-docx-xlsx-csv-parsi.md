@@ -115,12 +115,31 @@ need to match that choice for its own sake.
       results (local->ollama, cloud->openrouter, cloud-without-api-key
       raises explicitly rather than silently picking a default). 9 new
       tests, 28 total in the ingest package, all passing.
-      Still NOT done: neither HTTP call (Ollama or OpenRouter) has been
-      exercised against a live backend -- that's still the real remaining
-      gap, unrelated to routing. Confirm-back-before-commit flow doesn't
-      exist. The GUI for entering an OpenRouter API key is deliberately
-      deferred -- first real Tauri UI work in the project, its own scoped
-      effort (task 016), not squeezed into this task.
+      Live validation DONE for both backends (the previously recorded
+      gap, closed once tasks 016+008 produced a real key and a real
+      routing owner). Local: full pipeline through the real compiled
+      hw-probe binary -> default_routing=local -> live Ollama hermes3:3b
+      with schema-constrained decoding -> 3 CandidateFacts with source
+      quotes from a fabricated skincare-shop menu; the deliberately
+      ambiguous line ("walk-ins maybe accepted") was correctly not
+      extracted. Cloud: call_openrouter_extract against live OpenRouter
+      hermes-4-70b -> 5 facts (caught the durations the 3b local model
+      missed, correct entity attribution, same ambiguity correctly
+      omitted). Model-ID drift found and fixed during this: the
+      orchestrator daemon's default cloud model said
+      hermes-3-llama-3.1-70b while this task had deliberately chosen
+      hermes-4-70b -- both verified live against OpenRouter's /models,
+      hermes-4-70b wins (the documented decision), orchestrator default
+      updated, lockstep comments added in both runtimes.
+      Still NOT done: confirm-back-before-commit flow doesn't exist, and
+      extracted facts are not yet written into the knowledge-store
+      schema (extraction ends at CandidateFact objects). Design note for
+      the next step: now that the orchestrator daemon owns routing and
+      key resolution, ingest should likely call the daemon (e.g. a
+      POST /extract endpoint) instead of shelling to hw-probe and
+      holding an API key itself -- one routing implementation, and the
+      key never enters the Python runtime. Decide deliberately before
+      building the confirm-back flow on the current shape.
 - [x] Google Drive ingestion -- decided closed, not built. OAuth + Drive
       sync is a solved problem with mature existing tools (rclone, the
       gdrive CLI) -- no reason to hand-roll custom OAuth/API code for it.

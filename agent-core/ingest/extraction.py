@@ -156,6 +156,9 @@ def call_ollama_extract(
 # across the routing switch), and meaningfully cheaper than Claude/GPT/
 # Gemini for what should mostly be routine escalations from weak
 # hardware, not the hardest possible requests.
+# Keep in lockstep with the orchestrator daemon's default cloud model
+# (agent-core/orchestrator/src/main.rs) -- one product decision, two
+# runtimes.
 DEFAULT_OPENROUTER_MODEL = "nousresearch/hermes-4-70b"
 
 

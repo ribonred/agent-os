@@ -63,10 +63,12 @@ impl Config {
             ollama_url: env_or("AGENTIC_OS_OLLAMA_URL", "http://127.0.0.1:11434"),
             openrouter_url: env_or("AGENTIC_OS_OPENROUTER_URL", "https://openrouter.ai/api/v1"),
             local_model: env_or("AGENTIC_OS_LOCAL_MODEL", "hermes3:3b"),
-            cloud_model: env_or(
-                "AGENTIC_OS_CLOUD_MODEL",
-                "nousresearch/hermes-3-llama-3.1-70b",
-            ),
+            // Same model family as the local tier on purpose -- routing
+            // flips must not change the assistant's personality. Keep in
+            // lockstep with DEFAULT_OPENROUTER_MODEL in
+            // agent-core/ingest/extraction.py, which encodes the same
+            // product decision for extraction calls.
+            cloud_model: env_or("AGENTIC_OS_CLOUD_MODEL", "nousresearch/hermes-4-70b"),
         }
     }
 }
