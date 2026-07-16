@@ -71,19 +71,40 @@ tier, a future mid-tier box, and DGX Spark without a rebuild.
       now correctly reports default_routing: "local" instead of "cloud",
       since no credentials exist here yet -- not a regression, the
       earlier "cloud" result was the bug.
-- [ ] Wire the routing decision into the agent orchestration loop
-      -- blocked on the orchestrator itself not existing yet, which is a
-      much bigger piece of work than this task. Made the prerequisite
-      progress that doesn't require an orchestrator to exist first:
-      hw-probe now emits structured JSON (task 015) instead of only
-      human-readable text, so its output is actually consumable by
-      something once that something exists. Validated with jq, not just
-      visual inspection. Still nothing downstream reads it yet -- no
-      cache file, no systemd unit, no orchestrator. GPU/NPU detection
-      validation is closed out as "cannot be done from this sandbox" --
-      confirmed concretely (not assumed) that WSL2 masks the real PCI
-      vendor ID entirely (shows Microsoft 1414, not NVIDIA 10de), so no
-      code change here would help; must wait for bare-metal hardware.
+- [~] Wire the routing decision into the agent orchestration loop
+      -- the orchestrator now exists: agent-core/orchestrator, a
+      standalone Rust daemon (design decided deliberately: separate
+      process under systemd so the agent outlives the UI and ships
+      unchanged to the DGX tier; HTTP over a Unix socket, chmod 0600, no
+      TCP port on a customer device). hw-probe was refactored into a
+      library (lib.rs) the daemon links directly -- one implementation of
+      tier policy + routing lean, two consumers (CLI stays as a thin JSON
+      printer). Same for credentials: the keyring/provisioned-file logic
+      moved from the Tauri crate into a shared agent-core/cloud-key
+      crate; the daemon resolves the real key, so has_cloud_credentials
+      is no longer hardcoded anywhere.
+      API: GET /status (all routing inputs + decision, inspectable);
+      POST /chat (ndjson token stream; constitution.md is the system
+      prompt, loaded at startup, daemon refuses to start without it;
+      client-supplied system messages rejected 400).
+      Validated live from this sandbox, not simulated: /status correctly
+      reported tier=low, online, key_source=provisioned,
+      default_routing=cloud, and /chat streamed a real Hermes-70B
+      response through OpenRouter end-to-end over the Unix socket. The
+      no-key path verified too: routes local, and with no Ollama running
+      fails as a loud ndjson error event -- no silent fallback to the
+      other backend (deliberate: auto-failover is a product decision,
+      not a default).
+      Keyring read posture decided while validating: a dead/missing
+      Secret Service daemon logs loudly and falls through to the
+      provisioned file instead of bricking cloud entirely; writes still
+      fail hard. (This also makes WSL dev work.)
+      Still open, in order: NixOS packaging (buildRustPackage + systemd
+      unit + socket dir), UI chat client on the socket, local-path
+      success validation against a real Ollama (this sandbox has none),
+      GPU/NPU probe validation on bare metal (WSL2 masks PCI vendor IDs
+      -- confirmed concretely, shows Microsoft 1414, not the real
+      vendor).
 
 ## Acceptance Criteria
 

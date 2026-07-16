@@ -92,6 +92,8 @@ is hardcoded false until something real exists to read.
       gnome-keyring running, and real Tauri IPC needs the actual app
       window). Needs Red's `bun run tauri dev` pass: save a key, restart,
       confirm still connected, disconnect.
-- [ ] Follow-up (belongs to task 008's orchestrator wiring, not here):
-      agent runtime / hw-probe reading the key presence from the keyring
-      on the Rust side so has_cloud_credentials stops being hardcoded.
+- [x] Follow-up (belonged to task 008's orchestrator wiring): done there.
+      The key logic moved into the shared agent-core/cloud-key crate;
+      the orchestrator daemon resolves real key presence per request, so
+      has_cloud_credentials is no longer hardcoded anywhere. The Tauri
+      commands here became thin wrappers over the same crate.

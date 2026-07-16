@@ -1,0 +1,10 @@
+[package]
+name = "cloud-key"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+keyring = "4.1.4"
+log = "0.4.33"
+serde = { version = "1.0.228", features = ["derive"] }
+toml = "1.1.2"
