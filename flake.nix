@@ -22,6 +22,55 @@
         buildAndTestSubdir = "orchestrator";
         cargoLock.lockFile = ./agent-core/orchestrator/Cargo.lock;
       };
+
+      # The Tauri UI shell, packaged from a prebuilt binary. The app is
+      # deliberately built OUTSIDE Nix with the system toolchain (the
+      # repo's standing decision -- Tauri's GTK/webkit build deps aren't
+      # worth fighting into Nix), then autoPatchelfHook rewrites the ELF
+      # interpreter/RPATH against our pinned library stack so the result
+      # runs on NixOS and stays tied to this nixpkgs revision.
+      #
+      # Env-pointed + impure, same opt-in pattern as the provisioned ISO:
+      #   AGENTIC_OS_UI_BUNDLE=/path/to/ui/src-tauri/target/release/ui \
+      #     nix build .#<target> --impure
+      # A pure build (no env var) yields uiShell = null and a headless
+      # system -- the kiosk is additive, never a hard dependency. A fully
+      # in-Nix UI build remains the eventual goal; this formalizes the
+      # interim rather than pretending that's solved.
+      uiBundlePath = builtins.getEnv "AGENTIC_OS_UI_BUNDLE";
+      uiShell =
+        if uiBundlePath == "" then
+          null
+        else
+          pkgs.stdenv.mkDerivation {
+            pname = "agentic-ui-shell";
+            version = "0.1.0";
+            src = /. + uiBundlePath;
+            dontUnpack = true;
+            nativeBuildInputs = [ pkgs.autoPatchelfHook ];
+            # The same runtime stack patch-ui-for-nixos targets -- these
+            # become the RPATH autoPatchelfHook resolves against.
+            buildInputs = with pkgs; [
+              webkitgtk_4_1
+              gtk3
+              cairo
+              gdk-pixbuf
+              glib
+              glib-networking
+              dbus
+              openssl
+              librsvg
+              at-spi2-atk
+              atkmm
+              harfbuzz
+              libsoup_3
+              pango
+              stdenv.cc.cc.lib
+            ];
+            installPhase = ''
+              install -D -m 755 $src $out/bin/agentic-ui
+            '';
+          };
     in
     {
       # "host" is deliberately generic, not tied to a device model name --
@@ -30,7 +79,10 @@
       # deployed to a SWNUC11PAHi3000 dev box for validation.
       nixosConfigurations.host = nixpkgs.lib.nixosSystem {
         inherit system;
-        specialArgs = { orchestratorPackage = orchestrator; };
+        specialArgs = {
+          orchestratorPackage = orchestrator;
+          uiShellPackage = uiShell;
+        };
         modules = [
           ./hosts/host/configuration.nix
           ./hosts/host/hardware-configuration.nix
@@ -38,6 +90,7 @@
           ./modules/tool-registry/redis.nix
           ./modules/tool-registry/ollama.nix
           ./modules/orchestrator.nix
+          ./modules/kiosk.nix
         ];
       };
 

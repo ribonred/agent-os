@@ -52,7 +52,16 @@ through Nix.
 
 - [x] Patched binary's ELF interpreter and RPATH point at valid Nix store
       paths, verified with patchelf, not assumed
-- [ ] Patched binary actually launches on real NixOS -- cannot be
-      validated from this sandbox (not NixOS), same honesty boundary as
-      GPU detection and Ollama earlier. Needs testing on the actual
-      device once hardware-configuration.nix (task 002) is real.
+- [x] Packaging formalized beyond the manual tool (task 022's kiosk
+      work): flake.nix uiShell derivation wraps the release binary via
+      autoPatchelfHook against the same pinned GTK/webkit stack --
+      env-pointed (AGENTIC_OS_UI_BUNDLE + --impure), pure builds get a
+      headless system. Verified in the built closure: the packaged
+      binary's interpreter is Nix-store glibc, and autoPatchelfHook
+      would have failed the build on any unresolved library.
+      `make ui-bundle` builds the release binary with an env -i clean
+      environment -- discovered the hard way that the repo devShell's
+      Nix cc/binutils leaking into the ui build breaks the final link
+      against system GTK (libstdc++/glibc version skew).
+- [ ] Patched binary actually launches on real NixOS -- validated next
+      via task 022's kiosk VM boot, then the physical NUC.
