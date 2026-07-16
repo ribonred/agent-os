@@ -2,10 +2,9 @@
   import { fade, fly } from "svelte/transition";
   import PresenceOrb from "$lib/components/PresenceOrb.svelte";
 
-  // Idle/home screen -- the orb at rest on its surface. The other
-  // presence states (listening/thinking/speaking) and the actual
-  // assistant interaction arrive with the orchestrator work; this screen
-  // stays deliberately quiet until then.
+  // Idle/home screen -- the orb at rest on its surface. Touching the orb
+  // (or the invitation) opens the conversation; the whole center of the
+  // screen is the way in, no button chrome.
   let mounted = $state(false);
   $effect(() => {
     mounted = true;
@@ -14,12 +13,14 @@
 
 <main>
   {#if mounted}
-    <div in:fade={{ duration: 900 }}>
-      <PresenceOrb size={180} grounded />
-    </div>
-    <p class="invitation" in:fly={{ y: 10, duration: 700, delay: 500 }}>
-      Ready when you are.
-    </p>
+    <a class="wake" href="/chat" aria-label="Start a conversation">
+      <div in:fade={{ duration: 900 }}>
+        <PresenceOrb size={180} grounded />
+      </div>
+      <p class="invitation" in:fly={{ y: 10, duration: 700, delay: 500 }}>
+        Ready when you are.
+      </p>
+    </a>
     <a class="cloud-link" href="/settings/cloud" in:fade={{ delay: 900 }}>
       Cloud settings
     </a>
@@ -41,12 +42,27 @@
     );
   }
 
+  .wake {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4.5rem;
+    text-decoration: none;
+    cursor: pointer;
+  }
+
   .invitation {
     margin: 0;
     color: var(--text-secondary);
     font-size: 0.95rem;
     font-weight: 300;
     letter-spacing: 0.06em;
+    transition: color 0.3s;
+  }
+
+  .wake:hover .invitation,
+  .wake:focus-visible .invitation {
+    color: var(--text-primary);
   }
 
   .cloud-link {

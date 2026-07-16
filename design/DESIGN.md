@@ -104,6 +104,33 @@ the cycle *is* the answer: it says "I speak yours" in every supported
 script before a single choice is made. Fixed-height container so the
 swap never shifts layout.
 
+## The conversation surface
+
+Chat is the product's primary surface -- not a feature screen, the thing
+the device is for. It must read as "talking to the device," never as a
+chat app skin:
+
+- **The orb is the other party.** A small presence orb (48px) sits at the
+  top of the conversation; there is no assistant avatar, name badge, or
+  message bubble on the assistant side. Assistant text renders directly
+  on the canvas in `--text-primary`, full measure, like the device is
+  speaking into the room.
+- **User messages are quiet.** Right-aligned, `--surface` pill, smaller
+  type in `--text-secondary`. The user's words are context; the reply is
+  the content.
+- **Streaming is visible.** Tokens append as they arrive -- no spinner,
+  no "typing..." placeholder. Before the first token the orb shifts to
+  its thinking rhythm (per Motion); while tokens flow it speaks; idle
+  when done. The orb's state IS the status indicator; nothing textual
+  duplicates it.
+- **One input, one action.** A single quiet input bar pinned at the
+  bottom, send on Enter. No toolbar, no attachments yet (ingest comes
+  through its own flow later), no model picker -- routing is the
+  device's decision (constitution.md discloses it only on request).
+- **Errors are spoken, loudly.** A failed backend renders as an error
+  line in `--danger` in the conversation flow itself, with the actual
+  message -- never a silent retry, never a toast that vanishes.
+
 ## Typography
 
 System font stack (`-apple-system, "Segoe UI", Roboto, sans-serif` plus

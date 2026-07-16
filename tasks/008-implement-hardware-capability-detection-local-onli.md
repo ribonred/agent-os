@@ -99,11 +99,32 @@ tier, a future mid-tier box, and DGX Spark without a rebuild.
       Secret Service daemon logs loudly and falls through to the
       provisioned file instead of bricking cloud entirely; writes still
       fail hard. (This also makes WSL dev work.)
-      Still open, in order: NixOS packaging (buildRustPackage + systemd
-      unit + socket dir), UI chat client on the socket, local-path
-      success validation against a real Ollama (this sandbox has none),
-      GPU/NPU probe validation on bare metal (WSL2 masks PCI vendor IDs
-      -- confirmed concretely, shows Microsoft 1414, not the real
+      NixOS packaging done: buildRustPackage over agent-core (path deps
+      vendor together), systemd unit as the UI session user, constitution
+      pinned into the closure (fail-closed verified against the
+      Nix-built binary), wants-not-requires ollama, tmpfiles hands the
+      factory key file to the service user. Documented limitation: as a
+      system service the daemon has no session D-Bus, so user-saved
+      keyring keys aren't readable yet -- provisioned fallback covers it
+      until the session/login design lands.
+      UI chat client done: /chat per DESIGN.md's "conversation surface"
+      spec (written first) -- orb is the other party (48px, rhythm =
+      status: thinking/speaking states added to PresenceOrb), assistant
+      text bare on canvas, user messages quiet pills, one input, errors
+      spoken in-flow. Rust side proxies the Unix socket via
+      hyper/hyperlocal (webviews can't reach a socket); agent_chat
+      streams daemon ndjson events to JS through a Tauri Channel
+      unaltered. Home-screen orb is now the way into the conversation.
+      svelte-check clean (148 files); flow validated in-browser with a
+      faked IPC layer (channel envelope format {index, message} read
+      from the actual @tauri-apps/api source): two streamed turns,
+      history maintained, screenshots verified against the design spec.
+      Still open: real keyring keys from the daemon (session design),
+      local-path success against a real Ollama (none in this sandbox --
+      needs the device or Red's dev box), live tauri-dev pass against
+      the real daemon (browser fake covers visuals, not real IPC),
+      GPU/NPU probe validation on bare metal (WSL2 masks PCI vendor
+      IDs -- confirmed concretely, shows Microsoft 1414, not the real
       vendor).
 
 ## Acceptance Criteria

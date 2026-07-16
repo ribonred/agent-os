@@ -2,12 +2,29 @@
   // The product's signature element -- layer structure specified in
   // design/DESIGN.md ("The presence orb"). Size scales the whole
   // composition; `grounded` adds the light pool for the idle/home screen
-  // where the orb sits like a physical object.
-  let { size = 160, grounded = false }: { size?: number; grounded?: boolean } =
-    $props();
+  // where the orb sits like a physical object. `state` changes rhythm,
+  // not shape (Motion spec): the orb's tempo IS the status indicator.
+  type OrbState = "idle" | "thinking" | "speaking";
+  let {
+    size = 160,
+    grounded = false,
+    state = "idle",
+  }: { size?: number; grounded?: boolean; state?: OrbState } = $props();
+
+  const rhythm: Record<OrbState, { breathe: string; revolve: string }> = {
+    idle: { breathe: "6s", revolve: "20s" },
+    thinking: { breathe: "1.8s", revolve: "6s" },
+    speaking: { breathe: "3.2s", revolve: "11s" },
+  };
 </script>
 
-<div class="orb" style:--orb-size="{size}px" aria-hidden="true">
+<div
+  class="orb"
+  style:--orb-size="{size}px"
+  style:--orb-breathe={rhythm[state].breathe}
+  style:--orb-revolve={rhythm[state].revolve}
+  aria-hidden="true"
+>
   <div class="atmosphere"></div>
   <div class="core"></div>
   <div class="shading"></div>
@@ -38,7 +55,7 @@
       color-mix(in srgb, var(--orb-violet) 10%, transparent) 45%,
       transparent 70%
     );
-    animation: breathe 6s ease-in-out infinite;
+    animation: breathe var(--orb-breathe, 6s) ease-in-out infinite;
   }
 
   /* Layer 2: core -- the iridescent sphere, rotating on transform
@@ -58,7 +75,7 @@
        segments into continuous iridescence -- with less blur the core
        reads as pie slices, not living light */
     filter: blur(calc(var(--orb-size) / 11)) saturate(1.3);
-    animation: revolve 20s linear infinite;
+    animation: revolve var(--orb-revolve, 20s) linear infinite;
   }
 
   /* Layer 3: shading -- specular highlight + darkened lower edge is
@@ -103,7 +120,7 @@
       transparent 70%
     );
     filter: blur(6px);
-    animation: breathe 6s ease-in-out infinite;
+    animation: breathe var(--orb-breathe, 6s) ease-in-out infinite;
   }
 
   @keyframes breathe {

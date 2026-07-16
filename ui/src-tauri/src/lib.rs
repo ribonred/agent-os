@@ -1,3 +1,4 @@
+mod agent;
 mod cloud_key;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -33,7 +34,9 @@ pub fn run() {
             greet,
             cloud_key::cloud_key_save,
             cloud_key::cloud_key_status,
-            cloud_key::cloud_key_delete
+            cloud_key::cloud_key_delete,
+            agent::agent_status,
+            agent::agent_chat
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
