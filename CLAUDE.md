@@ -95,19 +95,30 @@ else entirely (see the cache note below).
 
 - **Never touch the user's own interactive `bun run tauri dev` session**
   — don't kill it, don't rely on it as the thing you're validating
-  against. Start an isolated throwaway server on a different port
-  (`bun run dev --port <other>`) for automated checks, and kill it plus
-  delete any screenshots/`.playwright-mcp/` output when done. Nothing
-  from a verification pass belongs in a commit — `.playwright-mcp/` is
-  gitignored, and screenshots taken to `Read` should be deleted after.
+  against. And "touch" includes the caches: a second vite dev server on
+  this tree shares `.svelte-kit/` and `node_modules/.vite/` with the
+  user's running one, and concurrent servers clobber each other's module
+  graphs — the user's app then randomly serves components whose markup
+  and scoped CSS come from different compiler generations (layout
+  collapses, styles match nothing, "sometimes broken sometimes not").
+  This happened for real and cost a long debugging session. Therefore:
+  **while the user's dev server is running, never start another vite dev
+  server on this tree and never delete its caches** — verify against a
+  static `vite build` output on a throwaway port, or ask first. When no
+  user server is running, an isolated throwaway server is fine — kill it
+  and delete any screenshots/`.playwright-mcp/` output when done.
+  Nothing from a verification pass belongs in a commit.
 - **Suspect a stale Vite/SvelteKit cache before a real bug** if a fresh
   change doesn't render as expected, especially after adding a new route
   file (e.g. `+layout.svelte`) — a long-running dev server can fail to
   pick up structural changes via HMR. Clear `.svelte-kit/` and
-  `node_modules/.vite/`, retest on a freshly started, isolated server,
-  *then* trust the result either way. This already happened once: a new
+  `node_modules/.vite/` (only when no dev server is running — see
+  above), retest on a freshly started, isolated server, *then* trust
+  the result either way. This already happened once: a new
   `+layout.svelte` wasn't picked up by a running server, and what looked
   like a centering bug in the CSS was actually a stale style transform.
+  Release builds are immune since `make ui-bundle` cleans caches and
+  fails on a scope-hash mismatch (the canary check).
 - Read-only checks (navigate/screenshot/evaluate) are the default use.
   Interaction (`click`/`fill_form`/etc.) is fine when a task specifically
   requires testing a flow, not as a default habit.

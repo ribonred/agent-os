@@ -135,7 +135,7 @@
       # pinned nixpkgs, so the patched result stays reproducible even
       # though the build itself wasn't done via Nix.
       #
-      packages.${system} = {
+      packages.${system} = (if uiShell == null then { } else { ui-shell = uiShell; }) // {
         inherit orchestrator;
 
         installer-iso =
