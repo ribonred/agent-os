@@ -119,13 +119,17 @@ tier, a future mid-tier box, and DGX Spark without a rebuild.
       faked IPC layer (channel envelope format {index, message} read
       from the actual @tauri-apps/api source): two streamed turns,
       history maintained, screenshots verified against the design spec.
+      Local path validated against a REAL Ollama (installed in the
+      sandbox, hermes3:3b pulled): keyless daemon reported
+      default_routing=local / backend_model=hermes3:3b and streamed
+      genuine tokens from the local model with a clean done marker --
+      both routing branches now proven against live backends. Live
+      tauri-dev pass done on the dev box too: real IPC, chat routed
+      cloud, keyring fallback logging exactly as designed on WSL.
       Still open: real keyring keys from the daemon (session design),
-      local-path success against a real Ollama (none in this sandbox --
-      needs the device or Red's dev box), live tauri-dev pass against
-      the real daemon (browser fake covers visuals, not real IPC),
       GPU/NPU probe validation on bare metal (WSL2 masks PCI vendor
       IDs -- confirmed concretely, shows Microsoft 1414, not the real
-      vendor).
+      vendor), and on-device run (tier/probe truth on the NUC).
 
 ## Acceptance Criteria
 
