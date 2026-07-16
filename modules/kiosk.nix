@@ -18,6 +18,18 @@
       # is chmod 0600, so the session user and daemon user must match.
       user = "admin";
       program = "${uiShellPackage}/bin/agentic-ui";
+      environment = {
+        # WebKit's DMABUF renderer crashed the webview on VMware's
+        # virtual GPU (flash of UI, then black -- JavaScriptCore stack
+        # traces in the journal); disabling it fixed it, diagnosed live
+        # on a VM install. Costs some rendering performance on capable
+        # GPUs -- revisit per hardware tier if UI performance on real
+        # devices warrants it.
+        WEBKIT_DISABLE_DMABUF_RENDERER = "1";
+        # Hardware cursor planes are unreliable on virtual GPUs; software
+        # cursors work everywhere.
+        WLR_NO_HARDWARE_CURSORS = "1";
+      };
     };
 
     # Unlock the keyring as part of the cage session's PAM login so the
