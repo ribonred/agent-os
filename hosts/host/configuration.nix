@@ -30,7 +30,13 @@
 
   services.ollama = {
     package = pkgs.ollama-cpu;
-    loadModels = [ "hermes3:3b" ];
+    # Deliberately NO loadModels here: that would download ~2GB silently
+    # at first networked boot, invisible to the person setting up the
+    # device. Model acquisition is instead a GUI-driven onboarding step
+    # (visible progress, user consent for the download) -- the UI/
+    # orchestrator triggers the pull through Ollama's API when the time
+    # comes. Until then the local tier fails loudly and routing leans
+    # cloud, which is the honest state of a fresh device.
   };
 
   # Required for the actual supported-language list (brain/onboarding.md):
