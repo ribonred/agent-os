@@ -48,8 +48,12 @@ Design:
       admin, PAM keyring unlock wired
 - [ ] Host closure builds in both flavors: pure (headless, no kiosk)
       and impure-with-bundle (kiosk baked in)
-- [ ] Boot-to-orb proven in a VM (QEMU/VMware) from the installer ISO
-      kiosk flavor
+- [x] Boot-to-orb proven in a VM: QEMU device-lab install from the
+      kiosk ISO boots to the fullscreen undecorated setup screen
+      (framebuffer screendump). Along the way: the WebKit DMABUF
+      crash fixed via cage environment, and the negative-DPI layout
+      bug diagnosed and fixed in the app (see task 024). VMware boot
+      verified live earlier (cage session up, keyring answering).
 - [ ] Boot-to-orb on the physical NUC (bench; closes 018's last box in
       the same session)
 

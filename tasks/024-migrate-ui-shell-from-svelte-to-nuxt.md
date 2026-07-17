@@ -53,8 +53,21 @@ framework-agnostic), same store-gated mandatory setup flow.
       overflow, all four screens screenshotted, chat stream exercised.
       Makefile canary rewritten for Vue scoping (.orb[data-v-*] in CSS
       must pair with the attr in built JS).
-- [ ] Release bundle (`make ui-bundle`) + kiosk ISO rebuild + VM
-      boot-to-orb re-verification on the Nuxt shell.
+- [x] Release bundle + VM re-verification done -- and it surfaced the
+      REAL device-layout bug (present since the first Svelte kiosk
+      boot, wrongly attributed to the frontend): on a bare kiosk
+      compositor GTK's screen resolution stays -1 ("unknown"), and
+      WebKitGTK's settings proxy turns that sentinel into an automatic
+      page scale of -1/96 -- devicePixelRatio goes negative and layout
+      detonates. Found by deploying a diagnostic build to a local QEMU
+      device VM and reading the numbers off the device (innerWidth
+      -122880 = 1280 x -96). Fix is three-part and all parts verified
+      required by removing them one at a time: pin
+      gdk_screen_set_resolution(96) before tauri builds webviews,
+      nudge gtk-xft-dpi so WebKit re-reads it, and pin webview zoom to
+      1.0 from the frontend on mount. Fullscreen undecorated
+      language screen verified pixel-correct via QEMU framebuffer
+      screendump on the final production binary.
 - [ ] Hands-on pass: `make dev` daily-driver feel, and confirm the
       intermittent layout breakage does not recur on the new toolchain.
 
@@ -63,6 +76,6 @@ framework-agnostic), same store-gated mandatory setup flow.
 - [x] Feature parity with the Svelte shell on all five screens,
       verified visually against the static build
 - [x] No Svelte/SvelteKit dependency remains in ui/
-- [ ] Device image boots to the fullscreen undecorated orb (VM check)
+- [x] Device image boots to the fullscreen undecorated orb (VM check)
 - [ ] The "sometimes broken sometimes not" layout failure does not
       reproduce on the new toolchain in normal dev use

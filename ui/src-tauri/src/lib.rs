@@ -9,7 +9,41 @@ fn greet(name: &str) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // On the device's bare kiosk compositor there is no settings daemon,
+    // so GTK's screen resolution stays at its -1 "unknown" sentinel and
+    // WebKitGTK turns it into an automatic page scale of -1/96 -- a
+    // negative near-zero devicePixelRatio that destroys the entire
+    // layout. Diagnosed live on a VM install by reading the broken
+    // devicePixelRatio off the device. The fix is three-part and all
+    // parts are required (verified by removing them one at a time):
+    // pin the resolution before tauri builds any webview, nudge
+    // gtk-xft-dpi afterwards so WebKit's settings proxy re-reads it,
+    // and the frontend pins webview zoom to 1.0 on mount (app.vue).
+    #[cfg(target_os = "linux")]
+    if gtk::init().is_ok() {
+        if let Some(display) = gtk::gdk::Display::default() {
+            display.default_screen().set_resolution(96.0);
+        }
+    }
+
     tauri::Builder::default()
+        .setup(|_app| {
+            #[cfg(target_os = "linux")]
+            {
+                use gtk::glib::object::ObjectExt;
+                if let Some(display) = gtk::gdk::Display::default() {
+                    display.default_screen().set_resolution(96.0);
+                }
+                // Nudge to a different value first so the change
+                // notification actually fires even if the property
+                // already held the target value.
+                if let Some(settings) = gtk::Settings::default() {
+                    settings.set_property("gtk-xft-dpi", 96 * 1024 + 1);
+                    settings.set_property("gtk-xft-dpi", 96 * 1024);
+                }
+            }
+            Ok(())
+        })
         .plugin(tauri_plugin_opener::init())
         // Wired in from the start, not added after something breaks --
         // LogDir gives a persistent file to actually read instead of

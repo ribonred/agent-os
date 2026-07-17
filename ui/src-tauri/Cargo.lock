@@ -4488,6 +4488,7 @@ name = "ui"
 version = "0.1.0"
 dependencies = [
  "cloud-key",
+ "gtk",
  "http-body-util",
  "hyper",
  "hyper-util",
