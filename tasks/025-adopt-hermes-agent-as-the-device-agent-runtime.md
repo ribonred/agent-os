@@ -23,6 +23,14 @@ WhatsApp, 20+ platforms) for reaching the assistant away from the
 device. OpenRouter remains the model provider inside it, keeping the
 Hermes-4 model lockstep.
 
+**Architecture (clarified 2026-07-17): the GUI is a frontend riding on
+Hermes Agent.** The OpenRouter key ultimately belongs to hermes-agent,
+which owns all model access. The hand-rolled orchestrator's chat
+routing was built on a misreading of the original plan -- though its
+hardware-tier detection (hw-probe) and the local Hermes-model story
+remain valid later, as hermes-agent provider config pointing at local
+Ollama on capable tiers.
+
 ## What the docs research established (2026-07-17)
 
 - **Runtime**: self-hosted Python app; `hermes gateway` is the daemon.
@@ -62,9 +70,20 @@ Hermes-4 model lockstep.
       /etc/agentic-os/hermes.env (shared vendor OpenRouter key + a
       per-unit API_SERVER_KEY generated at install time); tmpfiles
       handoff so the UI user can read the bearer token.
-- [ ] First light: enable on the dev VM, confirm the gateway comes up,
-      create a session and stream a turn with curl against
-      /api/sessions. Measure real closure growth.
+- [x] API surface validated live (WSL dev install, v0.18.2): enabled
+      the API server via .env + supervised-gateway restart, then
+      exercised the exact calls the GUI will make -- GET /health, GET
+      /v1/capabilities (session_chat_streaming/fork all true), POST
+      /api/sessions (id api_...), POST .../chat/stream. SSE sequence
+      confirmed as documented: run.started -> message.started ->
+      assistant.delta stream -> assistant.completed (full content +
+      finish_reason) -> run.completed. tool.progress carries a
+      "_thinking" channel too. Note: `hermes gateway` from a shell
+      refuses to start when the systemd user service owns the gateway
+      -- restart the service instead; same discipline applies on-device.
+- [ ] First light on the device VM: enable the NixOS module, confirm
+      the gateway + API server come up under the hardened service.
+      Measure real closure growth.
 - [ ] Toolset/terminal lockdown decision: what may the shipped agent
       execute on the device? (upstream default is everything)
 - [ ] UI cutover: Tauri shell speaks the sessions API (SSE) instead of
