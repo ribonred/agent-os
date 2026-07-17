@@ -59,24 +59,26 @@ host: ## Build the full NixOS host closure (pure = headless, no kiosk)
 	nix build .#nixosConfigurations.host.config.system.build.toplevel --print-out-paths
 
 ui-bundle: ## Build the release Tauri binary with the system toolchain
-	# Clean caches first: a stale .svelte-kit/vite cache once produced a
-	# build whose component markup and scoped CSS came from different
-	# compiler generations -- the styles matched nothing and the layout
-	# collapsed, permanently, on the device. Cheap insurance.
-	cd ui && rm -rf .svelte-kit node_modules/.vite build
+	# Clean caches first: a stale bundler cache once produced a build
+	# whose component markup and scoped CSS came from different compiler
+	# generations -- styles matched nothing, layout collapsed on-device.
+	cd ui && rm -rf .nuxt .output dist node_modules/.vite
 	# env -i on purpose: the repo devShell's Nix cc/binutils must not
 	# leak into this build -- mixing them with system GTK libs breaks
 	# the final link. ui/ is built with the system toolchain, always.
+	# The kiosk overlay makes the device window fullscreen/undecorated;
+	# dev (`make gui`) keeps the normal window.
 	cd ui && env -i HOME="$$HOME" USER="$$USER" TERM="$$TERM" \
 	  PATH="$$HOME/.bun/bin:$$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin" \
-	  bun run tauri build --no-bundle
-	# Canary for the same failure: the orb's scope hash must pair up
-	# between the built JS markup and the built CSS.
-	@css=$$(grep -rho '\.orb\.[a-z0-9-]*' ui/build/_app/immutable/assets/*.css | sort -u | sed 's/^\.orb\.//'); \
-	js=$$(grep -rho '"orb [a-z0-9-]*"' ui/build/_app/immutable/chunks/*.js ui/build/_app/immutable/nodes/*.js 2>/dev/null | sort -u | sed 's/"orb \([a-z0-9-]*\)"/\1/'); \
-	if [ -z "$$css" ] || [ "$$css" != "$$js" ]; then \
-	  echo "SCOPE HASH MISMATCH: css='$$css' js='$$js' -- stale-cache build, do not ship" >&2; exit 1; \
-	fi; echo "scope-hash check ok: $$css"
+	  NUXT_TELEMETRY_DISABLED=1 \
+	  bun run tauri build --no-bundle --config src-tauri/tauri.kiosk.conf.json
+	# Canary for the stale-cache failure: the orb's scoped-style
+	# attribute must pair up between built CSS and built JS markup.
+	@hash=$$(grep -rho '\.orb\[data-v-[a-f0-9]*\]' ui/dist/_nuxt/*.css | sort -u | sed 's/.*\[\(data-v-[a-f0-9]*\)\]/\1/'); \
+	if [ -z "$$hash" ]; then echo "CANARY: no scoped .orb rule in built CSS -- broken build, do not ship" >&2; exit 1; fi; \
+	if ! grep -rqF "$$hash" ui/dist/_nuxt/*.js; then \
+	  echo "SCOPE HASH MISMATCH: css has $$hash but no JS applies it -- stale-cache build, do not ship" >&2; exit 1; \
+	fi; echo "scope-hash check ok: $$hash"
 
 host-kiosk: ## Build the host closure with the kiosk (needs UI_BUNDLE; see `make ui-bundle`)
 	@test -f "$(UI_BUNDLE)" || { echo "UI_BUNDLE not found: $(UI_BUNDLE) -- run 'make ui-bundle' first" >&2; exit 1; }

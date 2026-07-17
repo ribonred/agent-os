@@ -9,3 +9,8 @@ __pycache__/
 
 # Local dev cloud key file (AGENTIC_OS_CLOUD_KEYS_FILE target) -- real secrets, never committed
 cloud-keys.toml
+
+# Nuxt/Tauri build outputs (ui/)
+ui/dist/
+ui/.output/
+ui/.nuxt/
