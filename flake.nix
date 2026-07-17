@@ -3,9 +3,18 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    # Hermes Agent: the planned agent runtime (session API the UI will
+    # talk to, messaging-platform bridges, skill/memory system). Upstream
+    # maintains its Nix flake best-effort ("Tier 2"), so this stays
+    # pinned by flake.lock and updates are a deliberate, tested step --
+    # never a casual `nix flake update`. It deliberately does NOT follow
+    # our nixpkgs: the package set is built against upstream's own pin,
+    # and rebasing it onto ours trades a known-good build for a bigger
+    # shared closure.
+    hermes-agent.url = "github:NousResearch/hermes-agent";
   };
 
-  outputs = { self, nixpkgs }:
+  outputs = { self, nixpkgs, hermes-agent }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
@@ -91,6 +100,8 @@
           ./modules/tool-registry/ollama.nix
           ./modules/orchestrator.nix
           ./modules/kiosk.nix
+          hermes-agent.nixosModules.default
+          ./modules/hermes-agent.nix
         ];
       };
 

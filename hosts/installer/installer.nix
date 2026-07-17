@@ -129,6 +129,20 @@ in
       if [ -f /iso/cloud-keys.toml ]; then
         echo "Installing vendor-provisioned cloud keys."
         install -D -m 600 -o root -g root /iso/cloud-keys.toml /mnt/etc/agentic-os/cloud-keys.toml
+
+        # Same key rendered in Hermes Agent's .env format (see
+        # modules/hermes-agent.nix), plus the agent API server's bearer
+        # token -- generated here, per unit, so no two devices share it
+        # the way they share the vendor cloud key.
+        or_key="$(sed -n 's/^api_key *= *"\(.*\)"/\1/p' /iso/cloud-keys.toml | head -n1)"
+        if [ -z "$or_key" ]; then
+          echo "WARNING: could not parse api_key from cloud-keys.toml; hermes.env gets no cloud key" >&2
+        fi
+        install -D -m 600 -o root -g root /dev/null /mnt/etc/agentic-os/hermes.env
+        {
+          echo "OPENROUTER_API_KEY=$or_key"
+          echo "API_SERVER_KEY=$(head -c 32 /dev/urandom | sha256sum | cut -c1-48)"
+        } > /mnt/etc/agentic-os/hermes.env
       fi
 
       echo ""
