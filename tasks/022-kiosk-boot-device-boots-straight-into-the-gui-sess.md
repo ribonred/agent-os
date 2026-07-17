@@ -41,12 +41,12 @@ Design:
 
 ## Tasks
 
-- [ ] Nix package for the prebuilt UI bundle (autoPatchelfHook wrap,
+- [x] Nix package for the prebuilt UI bundle (autoPatchelfHook wrap,
       env-pointed artifact, loud failure when the env var is set but
       the path is wrong; pure builds skip the kiosk cleanly)
-- [ ] modules/kiosk.nix: cage as the device session running the UI as
+- [x] modules/kiosk.nix: cage as the device session running the UI as
       admin, PAM keyring unlock wired
-- [ ] Host closure builds in both flavors: pure (headless, no kiosk)
+- [x] Host closure builds in both flavors: pure (headless, no kiosk)
       and impure-with-bundle (kiosk baked in)
 - [x] Boot-to-orb proven in a VM: QEMU device-lab install from the
       kiosk ISO boots to the fullscreen undecorated setup screen

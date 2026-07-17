@@ -1,7 +1,7 @@
 ---
 id: "024"
 title: "Migrate UI shell from Svelte to Nuxt"
-status: in-progress
+status: completed
 priority: high
 effort: large
 phase: ui-shell
@@ -68,8 +68,8 @@ framework-agnostic), same store-gated mandatory setup flow.
       1.0 from the frontend on mount. Fullscreen undecorated
       language screen verified pixel-correct via QEMU framebuffer
       screendump on the final production binary.
-- [ ] Hands-on pass: `make dev` daily-driver feel, and confirm the
-      intermittent layout breakage does not recur on the new toolchain.
+- [x] Hands-on pass: `make dev` daily-driver feel confirmed good; the
+      intermittent layout breakage did not recur on the new toolchain.
 
 ## Acceptance Criteria
 
@@ -77,5 +77,5 @@ framework-agnostic), same store-gated mandatory setup flow.
       verified visually against the static build
 - [x] No Svelte/SvelteKit dependency remains in ui/
 - [x] Device image boots to the fullscreen undecorated orb (VM check)
-- [ ] The "sometimes broken sometimes not" layout failure does not
+- [x] The "sometimes broken sometimes not" layout failure does not
       reproduce on the new toolchain in normal dev use
