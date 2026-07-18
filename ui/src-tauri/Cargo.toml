@@ -25,9 +25,13 @@ serde_json = "1"
 tauri-plugin-log = "2.8.0"
 tauri-plugin-store = "2.4.3"
 cloud-key = { path = "../../agent-core/cloud-key" }
-hyperlocal = "0.9"
 hyper = "1"
 http-body-util = "0.1"
-hyper-util = "0.1"
+hyper-util = { version = "0.1", features = ["client-legacy", "http1", "tokio"] }
+tokio = { version = "1", features = ["sync"] }
+
+[dev-dependencies]
+# For the ignored live-gateway test only (cargo test -- --ignored).
+tokio = { version = "1", features = ["sync", "rt", "macros"] }
 gtk = "0.18"
 

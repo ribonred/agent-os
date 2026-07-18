@@ -12,7 +12,7 @@ type Entry =
 
 type StreamEvent =
   | { type: "token"; content: string }
-  | { type: "done"; backend: string; model: string }
+  | { type: "done" }
   | { type: "error"; message: string };
 
 const entries = ref<Entry[]>([]);
@@ -50,15 +50,8 @@ async function send() {
   entries.value.push({ kind: "user", content });
   await autoscroll();
 
-  // Full turn history goes to the daemon -- it owns the system prompt;
-  // error entries are UI-local and never sent back as context.
-  const messages = entries.value
-    .filter((e) => e.kind !== "error")
-    .map((e) => ({
-      role: e.kind === "user" ? "user" : "assistant",
-      content: e.content,
-    }));
-
+  // Only the new turn is sent: the Hermes gateway owns the conversation
+  // history server-side, scoped to the session the Rust layer holds.
   entries.value.push({ kind: "assistant", content: "" });
   const replyIndex = entries.value.length - 1;
 
@@ -74,12 +67,11 @@ async function send() {
       entries.value[replyIndex] = { kind: "error", content: event.message };
       autoscroll();
     }
-    // "done" carries backend/model -- routing is disclosed on request
-    // only (constitution.md), so the UI reads it and shows nothing.
+    // "done" is bookkeeping only -- nothing to show.
   };
 
   try {
-    await invoke("agent_chat", { messages, onEvent });
+    await invoke("agent_chat", { input: content, onEvent });
     // An empty reply with no error event means the stream never
     // produced content -- say so rather than leaving a blank line.
     const reply = entries.value[replyIndex];

@@ -19,9 +19,12 @@
   environment.systemPackages = with pkgs; [
     git
     vim
-    uv  # every Python invocation on this system goes through uv -- no bare
-        # python3/pip in this list, on purpose, so there's nothing to reach
-        # for except uv
+    uv  # every Python *project* invocation goes through uv -- no bare pip
+    python3 # ...but a real interpreter must exist: uv's own downloaded
+            # CPython builds assume an FHS filesystem layout and fail on
+            # NixOS, which left an earlier image with `uv` on PATH and no
+            # runnable python at all. This is the interpreter uv should
+            # target (e.g. `uv venv --python python3`).
     fnm # nvm is not packaged in nixpkgs -- its curl-installed, rc-file-
         # mutating model doesn't fit how Nix manages tool versions. fnm is
         # the equivalent that is actually packaged and works declaratively.

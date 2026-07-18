@@ -64,6 +64,7 @@ pub fn run() {
         // design/DESIGN.md, the OpenRouter API key needs OS-keyring-backed
         // storage instead, not this plain-file store.
         .plugin(tauri_plugin_store::Builder::default().build())
+        .manage(agent::AgentSession::default())
         .invoke_handler(tauri::generate_handler![
             greet,
             cloud_key::cloud_key_save,

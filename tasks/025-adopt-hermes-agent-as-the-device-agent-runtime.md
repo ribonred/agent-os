@@ -86,9 +86,23 @@ Ollama on capable tiers.
       Measure real closure growth.
 - [ ] Toolset/terminal lockdown decision: what may the shipped agent
       execute on the device? (upstream default is everything)
-- [ ] UI cutover: Tauri shell speaks the sessions API (SSE) instead of
-      the orchestrator socket; orb rhythm driven by
-      tool.started/completed events.
+- [x] UI cutover implemented: agent.rs is now a Hermes gateway client
+      (HTTP+SSE on loopback) -- one session per app run created lazily
+      and dropped on 404 so a gateway restart can't wedge the app,
+      X-Hermes-Session-Key pins a stable long-term memory scope, SSE
+      records translated to the UI's existing token/done/error events
+      (unit-tested), bearer resolved env -> device hermes.env ->
+      ~/.hermes/.env so dev needs zero key setup (`make hermes-env`
+      shows the resolution). chat.vue sends only the new turn; the
+      gateway owns history. Proven by an opt-in live test
+      (cargo test -- --ignored): session create + streamed turn
+      round-trip against the real gateway, "pong" received.
+- [ ] Hands-on GUI pass over the gateway (`make dev`): chat feels
+      right, orb rhythm correct, first-run session behavior sane.
+- [ ] Later polish: drive the orb's thinking rhythm from
+      tool.started/completed, and decide the settings/cloud key
+      screen's fate now that the gateway owns the OpenRouter key
+      (likely writes hermes' .env instead of the keyring).
 - [ ] Decide the orchestrator's fate: hardware-tier local/cloud routing
       must survive -- either hw-probe feeds hermes' provider/fallback
       config (it supports custom endpoints, e.g. local Ollama), or the

@@ -1,34 +1,49 @@
 # Developer entry points for the dev loop. Device-side behavior is
 # defined entirely by the flake -- nothing here ships.
 #
-# The dev daemon/GUI pair talk over SOCKET; override any of these on the
-# command line, e.g.: make daemon KEYS_FILE=/somewhere/else/keys.toml
+# The GUI rides the local Hermes Agent gateway (HERMES_URL); its bearer
+# token is auto-discovered from ~/.hermes/.env in dev, so no key setup
+# is needed beyond a working `hermes` install. `make hermes-env` shows
+# what would be used.
 
-REPO      := $(abspath .)
-SOCKET    ?= /tmp/aos-orch.sock
-KEYS_FILE ?= $(REPO)/cloud-keys.toml
+REPO       := $(abspath .)
+KEYS_FILE  ?= $(REPO)/cloud-keys.toml
+HERMES_URL ?= http://127.0.0.1:8642
+SOCKET     ?= /tmp/aos-orch.sock
 
 UI_BUNDLE ?= $(REPO)/ui/src-tauri/target/release/ui
 
-.PHONY: help dev daemon gui test iso iso-provisioned iso-kiosk iso-full orchestrator host ui-bundle host-kiosk
+.PHONY: help dev gui hermes-env daemon test iso iso-provisioned iso-kiosk iso-full orchestrator host ui-bundle host-kiosk
 
 help: ## List available targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
 
-dev: ## Run daemon + GUI together (daemon dies with the GUI)
-	@trap 'kill 0' EXIT; \
-	$(MAKE) -s daemon & \
+dev: ## Run the GUI against the local Hermes Agent gateway
+	@curl -fsS -m 2 $(HERMES_URL)/health >/dev/null 2>&1 \
+	  || echo "WARNING: no Hermes gateway answering at $(HERMES_URL) -- chat will fail. Fix with: hermes gateway restart" >&2
 	$(MAKE) -s gui
 
-daemon: ## Run the orchestrator daemon in the foreground
+gui: ## Run the Tauri app (expects the Hermes gateway; see `make dev`)
+	cd ui && AGENTIC_OS_HERMES_URL=$(HERMES_URL) bun run tauri dev
+
+hermes-env: ## Show which gateway URL/key the GUI would resolve (key masked)
+	@echo "url: $(HERMES_URL)"
+	@if [ -n "$$AGENTIC_OS_HERMES_KEY" ]; then src="AGENTIC_OS_HERMES_KEY"; key="$$AGENTIC_OS_HERMES_KEY"; \
+	elif [ -f /etc/agentic-os/hermes.env ] && grep -q '^API_SERVER_KEY=' /etc/agentic-os/hermes.env 2>/dev/null; then \
+	  src="/etc/agentic-os/hermes.env"; key=$$(sed -n 's/^API_SERVER_KEY=//p' /etc/agentic-os/hermes.env | head -n1); \
+	elif [ -f "$$HOME/.hermes/.env" ] && grep -q '^API_SERVER_KEY=' "$$HOME/.hermes/.env"; then \
+	  src="$$HOME/.hermes/.env"; key=$$(sed -n 's/^API_SERVER_KEY=//p' "$$HOME/.hermes/.env" | head -n1); \
+	else src="(none)"; key=""; fi; \
+	if [ -n "$$key" ]; then echo "key: $$(echo "$$key" | cut -c1-4)**** (from $$src)"; \
+	else echo "key: NOT FOUND -- set AGENTIC_OS_HERMES_KEY or enable the API server in ~/.hermes/.env" >&2; exit 1; fi
+	@curl -fsS -m 2 $(HERMES_URL)/health || { echo "gateway not answering at $(HERMES_URL)" >&2; exit 1; }
+
+daemon: ## Run the legacy orchestrator daemon (no longer used by the GUI)
 	cd agent-core/orchestrator && \
 	AGENTIC_OS_SOCKET=$(SOCKET) \
 	AGENTIC_OS_CONSTITUTION=$(REPO)/brain/constitution.md \
 	AGENTIC_OS_CLOUD_KEYS_FILE=$(KEYS_FILE) \
 	cargo run
-
-gui: ## Run the Tauri app (expects a running daemon; see `make dev`)
-	cd ui && AGENTIC_OS_SOCKET=$(SOCKET) bun run tauri dev
 
 test: ## All Rust crate tests + svelte-check
 	cd agent-core/hw-probe && cargo test
