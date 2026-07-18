@@ -29,9 +29,9 @@ hyper = "1"
 http-body-util = "0.1"
 hyper-util = { version = "0.1", features = ["client-legacy", "http1", "tokio"] }
 tokio = { version = "1", features = ["sync"] }
+gtk = "0.18"
 
 [dev-dependencies]
 # For the ignored live-gateway test only (cargo test -- --ignored).
 tokio = { version = "1", features = ["sync", "rt", "macros"] }
-gtk = "0.18"
 
