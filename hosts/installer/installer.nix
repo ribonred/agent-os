@@ -77,6 +77,12 @@ in
     script = ''
       set -euo pipefail
 
+      # A failed install must be unmissable on the machine's own screen:
+      # the disk is already wiped at that point, and a silent exit leaves
+      # a machine that "installed fine" until its first boot finds no
+      # bootloader. Stay up so the message and journal remain readable.
+      trap 'echo ""; echo "=============================================================="; echo "  INSTALL FAILED (line $LINENO). This machine has NO bootloader."; echo "  Check: journalctl -u agentic-install"; echo "  Fix the cause and boot this installer again."; echo "=============================================================="' ERR
+
       # Target = the internal disk. NVMe is the expected case for the
       # mini-PC tier; SATA is the fallback. The boot USB itself shows up
       # as /dev/sd* too, but only after the NVMe check fails -- if a SATA
@@ -108,6 +114,17 @@ in
         mkpart root ext4 512MB 100%
       udevadm settle
 
+      # udevadm settle alone is not enough on slower NVMe emulations
+      # (seen on VMware): the partition device nodes can lag behind
+      # parted, and mkfs on a not-yet-existing node aborts the install
+      # after the disk is already wiped. Wait for the nodes explicitly.
+      for _ in $(seq 30); do
+        [ -b "$p1" ] && [ -b "$p2" ] && break
+        sleep 1
+        partprobe "$disk" 2>/dev/null || true
+      done
+      [ -b "$p1" ] && [ -b "$p2" ] || { echo "partition nodes $p1/$p2 never appeared" >&2; exit 1; }
+
       # Labels here are the contract with
       # hosts/host/hardware-configuration.nix, which mounts by them.
       mkfs.fat -F 32 -n BOOT "$p1"
@@ -121,7 +138,12 @@ in
       # The closure is already on the stick -- this copies it to the disk
       # and installs the bootloader, no network involved. --no-root-passwd
       # because user auth is declared in the system config itself.
+      echo ""
+      echo "Copying the system to disk. This takes several minutes and"
+      echo "prints little progress -- it is NOT stuck. Do not power off."
+      echo ""
       nixos-install --system ${hostSystem} --no-root-passwd
+      echo "System copy + bootloader done."
 
       # Provisioned flavor only: place the vendor cloud-key file where the
       # UI shell's fallback lookup expects it, with the ownership/mode the
