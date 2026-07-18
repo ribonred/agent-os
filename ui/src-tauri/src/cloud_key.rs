@@ -1,12 +1,12 @@
 //! Tauri command surface over the shared cloud-key crate
 //! (agent-core/cloud-key -- storage logic, precedence rules, and tests
-//! live there, shared with the orchestrator daemon).
+//! live there, shared with any Rust-side consumer).
 //!
 //! Deliberate security posture: keys never come back out to the webview.
 //! There is no command that returns a stored secret -- the frontend can
 //! only save, check status, and delete. Consumers that actually need the
-//! key (the orchestrator) call cloud_key::resolve_openrouter_key on the
-//! Rust side, never through JS.
+//! key call cloud_key::resolve_openrouter_key on the Rust side, never
+//! through JS.
 
 use cloud_key::KeySource;
 

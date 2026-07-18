@@ -36,8 +36,8 @@
     # Deliberately NO loadModels here: that would download ~2GB silently
     # at first networked boot, invisible to the person setting up the
     # device. Model acquisition is instead a GUI-driven onboarding step
-    # (visible progress, user consent for the download) -- the UI/
-    # orchestrator triggers the pull through Ollama's API when the time
+    # (visible progress, user consent for the download) -- the GUI/agent
+    # runtime triggers the pull through Ollama's API when the time
     # comes. Until then the local tier fails loudly and routing leans
     # cloud, which is the honest state of a fresh device.
   };
@@ -76,6 +76,14 @@
   #
   # A secrets-management tool (e.g. sops-nix/agenix) should own writing
   # that file once the factory provisioning flow is designed.
+  #
+  # The file is written at factory time as root, before the device user
+  # exists on the installed system; this hands it to that user at boot.
+  # 'z' only adjusts existing files -- an unprovisioned device is
+  # untouched.
+  systemd.tmpfiles.rules = [
+    "z /etc/agentic-os/cloud-keys.toml 0600 admin users - -"
+  ];
 
   # Bumping this requires reading the NixOS release notes for breaking
   # changes first -- do not upgrade blindly.

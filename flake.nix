@@ -19,19 +19,6 @@
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
 
-      # The agent orchestrator daemon (agent-core/orchestrator). src is
-      # the whole agent-core tree because the crate has path dependencies
-      # on its sibling crates (hw-probe, cloud-key) -- one shared
-      # implementation, so they must be vendored together.
-      orchestrator = pkgs.rustPlatform.buildRustPackage {
-        pname = "agentic-orchestrator";
-        version = "0.1.0";
-        src = ./agent-core;
-        cargoRoot = "orchestrator";
-        buildAndTestSubdir = "orchestrator";
-        cargoLock.lockFile = ./agent-core/orchestrator/Cargo.lock;
-      };
-
       # The Tauri UI shell, packaged from a prebuilt binary. The app is
       # deliberately built OUTSIDE Nix with the system toolchain (the
       # repo's standing decision -- Tauri's GTK/webkit build deps aren't
@@ -89,7 +76,6 @@
       nixosConfigurations.host = nixpkgs.lib.nixosSystem {
         inherit system;
         specialArgs = {
-          orchestratorPackage = orchestrator;
           uiShellPackage = uiShell;
         };
         modules = [
@@ -98,7 +84,6 @@
           ./modules/tool-registry/postgres.nix
           ./modules/tool-registry/redis.nix
           ./modules/tool-registry/ollama.nix
-          ./modules/orchestrator.nix
           ./modules/kiosk.nix
           hermes-agent.nixosModules.default
           ./modules/hermes-agent.nix
@@ -147,8 +132,6 @@
       # though the build itself wasn't done via Nix.
       #
       packages.${system} = (if uiShell == null then { } else { ui-shell = uiShell; }) // {
-        inherit orchestrator;
-
         installer-iso =
           self.nixosConfigurations.installer.config.system.build.isoImage;
 

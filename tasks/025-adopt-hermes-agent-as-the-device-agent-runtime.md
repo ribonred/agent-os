@@ -103,10 +103,11 @@ Ollama on capable tiers.
       tool.started/completed, and decide the settings/cloud key
       screen's fate now that the gateway owns the OpenRouter key
       (likely writes hermes' .env instead of the keyring).
-- [ ] Decide the orchestrator's fate: hardware-tier local/cloud routing
-      must survive -- either hw-probe feeds hermes' provider/fallback
-      config (it supports custom endpoints, e.g. local Ollama), or the
-      orchestrator shrinks to a router in front of it.
+- [x] Orchestrator's fate decided: removed (crate, NixOS module, flake
+      package, make targets) -- with the GUI on the gateway it had no
+      client left. hw-probe and cloud-key stay: hardware-tier routing
+      returns as hermes provider/fallback config fed by hw-probe (it
+      supports custom endpoints, e.g. local Ollama), tracked in 008.
 - [ ] Messaging bridges (Slack, Telegram) -- after the device story is
       solid; each needs its own credentials flow.
 

@@ -9,11 +9,10 @@
 REPO       := $(abspath .)
 KEYS_FILE  ?= $(REPO)/cloud-keys.toml
 HERMES_URL ?= http://127.0.0.1:8642
-SOCKET     ?= /tmp/aos-orch.sock
 
 UI_BUNDLE ?= $(REPO)/ui/src-tauri/target/release/ui
 
-.PHONY: help dev gui hermes-env daemon test iso iso-provisioned iso-kiosk iso-full orchestrator host ui-bundle host-kiosk
+.PHONY: help dev gui hermes-env test iso iso-provisioned iso-kiosk iso-full host ui-bundle host-kiosk
 
 help: ## List available targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -49,17 +48,9 @@ hermes-env: ## Show which gateway URL/key the GUI would resolve (key masked)
 	else echo "key: NOT FOUND -- set AGENTIC_OS_HERMES_KEY or enable the API server in ~/.hermes/.env" >&2; exit 1; fi
 	@curl -fsS -m 2 $(HERMES_URL)/health || { echo "gateway not answering at $(HERMES_URL)" >&2; exit 1; }
 
-daemon: ## Run the legacy orchestrator daemon (no longer used by the GUI)
-	cd agent-core/orchestrator && \
-	AGENTIC_OS_SOCKET=$(SOCKET) \
-	AGENTIC_OS_CONSTITUTION=$(REPO)/brain/constitution.md \
-	AGENTIC_OS_CLOUD_KEYS_FILE=$(KEYS_FILE) \
-	cargo run
-
-test: ## All Rust crate tests + svelte-check
+test: ## All Rust crate tests + UI typecheck
 	cd agent-core/hw-probe && cargo test
 	cd agent-core/cloud-key && cargo test
-	cd agent-core/orchestrator && cargo test
 	cd ui && bun run check
 
 iso: ## Build the generic (secret-free) self-installing ISO
@@ -77,9 +68,6 @@ iso-full: ## Build the complete device image: kiosk UI + provisioned cloud key
 	@test -f "$(UI_BUNDLE)" || { echo "UI_BUNDLE not found: $(UI_BUNDLE) -- run 'make ui-bundle' first" >&2; exit 1; }
 	@test -f "$(KEYS_FILE)" || { echo "KEYS_FILE not found: $(KEYS_FILE)" >&2; exit 1; }
 	AGENTIC_OS_UI_BUNDLE=$(UI_BUNDLE) AGENTIC_OS_BAKE_CLOUD_KEYS=$(KEYS_FILE) nix build .#installer-iso --impure --print-out-paths
-
-orchestrator: ## Build the orchestrator package via Nix
-	nix build .#orchestrator --print-out-paths
 
 host: ## Build the full NixOS host closure (pure = headless, no kiosk)
 	nix build .#nixosConfigurations.host.config.system.build.toplevel --print-out-paths

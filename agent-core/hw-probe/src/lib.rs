@@ -1,8 +1,8 @@
 //! Hardware capability detection and the local/cloud routing default.
 //!
-//! Library-first on purpose: the orchestrator links this crate and calls
-//! the probe directly, so there is exactly one implementation of the tier
-//! policy and routing lean. The `hw-probe` binary is a thin JSON printer
+//! Library-first on purpose: agent-side consumers link this crate and
+//! call the probe directly, so there is exactly one implementation of the
+//! tier policy and routing lean. The `hw-probe` binary is a thin JSON printer
 //! over the same functions for humans and scripts.
 
 use std::fs;
@@ -162,7 +162,7 @@ pub enum RoutingLean {
 // This is a *default lean*, not the full per-request routing decision --
 // that needs conversation context and task-complexity assessment (e.g.
 // low tier still runs small local tasks, only heavier requests go to
-// cloud), which belongs to the agent orchestrator, not to a hardware
+// cloud), which belongs to the agent runtime, not to a hardware
 // probe. What this answers is narrower: absent any other signal, should
 // this device default toward local or cloud.
 //
@@ -192,7 +192,7 @@ pub fn decide_default_routing(
 }
 
 // The full probe output, machine-readable. The hw-probe binary prints
-// this as JSON; the orchestrator builds it in-process with real
+// this as JSON; in-process consumers build it with real
 // credential/vertical inputs.
 #[derive(Debug, Clone, Serialize)]
 pub struct ProbeResult {

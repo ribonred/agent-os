@@ -14,8 +14,8 @@
   config = lib.mkIf (uiShellPackage != null) {
     services.cage = {
       enable = true;
-      # Same user the orchestrator daemon runs as: the daemon's socket
-      # is chmod 0600, so the session user and daemon user must match.
+      # The device user: owns the session, the keyring, and the
+      # provisioned key files handed over via tmpfiles.
       user = "admin";
       program = "${uiShellPackage}/bin/agentic-ui";
       environment = {

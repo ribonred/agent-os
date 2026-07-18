@@ -1,10 +1,10 @@
 //! Cloud API key storage: OS keyring for user-entered keys, plus an
 //! optional vendor-provisioned key file.
 //!
-//! One implementation, two consumers: the Tauri UI shell (save/delete/
-//! status commands -- the key itself never crosses into the webview) and
-//! the orchestrator daemon (the actual key, via `resolve_openrouter_key`,
-//! to call the cloud provider).
+//! One implementation, shared by every consumer: the Tauri UI shell
+//! (save/delete/status commands -- the key itself never crosses into the
+//! webview) and any Rust-side process that needs the actual key (via
+//! `resolve_openrouter_key`) to call the cloud provider.
 //!
 //! Two sources, one clear precedence:
 //!
@@ -131,8 +131,8 @@ fn keyring_openrouter_key() -> Option<String> {
     }
 }
 
-/// The actual key, for consumers that call the cloud provider (the
-/// orchestrator). Keyring wins over provisioned file.
+/// The actual key, for consumers that call the cloud provider.
+/// Keyring wins over provisioned file.
 pub fn resolve_openrouter_key() -> Result<Option<String>, String> {
     if let Some(key) = keyring_openrouter_key() {
         return Ok(Some(key));
