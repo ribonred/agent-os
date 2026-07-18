@@ -24,7 +24,18 @@ dev: ## Run the GUI against the local Hermes Agent gateway
 	$(MAKE) -s gui
 
 gui: ## Run the Tauri app (expects the Hermes gateway; see `make dev`)
-	cd ui && AGENTIC_OS_HERMES_URL=$(HERMES_URL) bun run tauri dev
+	# env -i for the same reason as ui-bundle: running make from the repo
+	# root inherits the direnv/Nix devShell, whose cc/binutils break the
+	# ui link against system GTK. Display/session vars pass through so
+	# the window, webview, and keyring still work.
+	cd ui && env -i HOME="$$HOME" USER="$$USER" TERM="$$TERM" \
+	  PATH="$$HOME/.bun/bin:$$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin" \
+	  DISPLAY="$$DISPLAY" WAYLAND_DISPLAY="$$WAYLAND_DISPLAY" \
+	  XDG_RUNTIME_DIR="$$XDG_RUNTIME_DIR" \
+	  DBUS_SESSION_BUS_ADDRESS="$$DBUS_SESSION_BUS_ADDRESS" \
+	  NUXT_TELEMETRY_DISABLED=1 \
+	  AGENTIC_OS_HERMES_URL=$(HERMES_URL) \
+	  bun run tauri dev
 
 hermes-env: ## Show which gateway URL/key the GUI would resolve (key masked)
 	@echo "url: $(HERMES_URL)"
