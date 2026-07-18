@@ -16,6 +16,97 @@
 
   services.openssh.enable = true;
 
+  # The agent runtime (modules/hermes-agent.nix carries the full
+  # configuration). The GUI is a frontend to this gateway -- without it
+  # the device has no agent at all, which a bench install demonstrated
+  # the hard way: everything booted, and chat had nothing to reach.
+  services.hermes-agent.enable = true;
+
+  # Boot identity (design/DESIGN.md): the brand mark centered on a dark
+  # splash from early boot until the kiosk compositor takes over, with
+  # kernel/systemd chatter silenced -- the product experience starts at
+  # power-on, not at the GUI.
+  #
+  # A custom theme, not `boot.plymouth.logo`, for two reasons verified
+  # live on a device VM: plymouth's two-step plugin composites a
+  # no-alpha PNG as fully transparent (the watermark simply never
+  # appears -- the design JPEG must become an RGBA glyph with its black
+  # field cut to transparency), and the stock spinner theme pins the
+  # watermark to the bottom edge with no way to center it from the
+  # NixOS module.
+  boot.plymouth = {
+    enable = true;
+    theme = "agentic";
+    themePackages = [
+      (pkgs.runCommand "plymouth-agentic-theme"
+        { nativeBuildInputs = [ pkgs.imagemagick ]; }
+        ''
+          theme=$out/share/plymouth/themes/agentic
+          mkdir -p $theme
+
+          # Dialog/throbber assets reused from the stock spinner theme
+          # (disk-password prompts etc. still need them).
+          cp ${pkgs.plymouth}/share/plymouth/themes/spinner/throbber-*.png \
+             ${pkgs.plymouth}/share/plymouth/themes/spinner/entry.png \
+             ${pkgs.plymouth}/share/plymouth/themes/spinner/bullet.png \
+             ${pkgs.plymouth}/share/plymouth/themes/spinner/lock.png \
+             ${pkgs.plymouth}/share/plymouth/themes/spinner/capslock.png \
+             ${pkgs.plymouth}/share/plymouth/themes/spinner/keyboard.png \
+             ${pkgs.plymouth}/share/plymouth/themes/spinner/keymap-render.png \
+             $theme/
+
+          # design/logo.jpg stays the single source of truth: white mark
+          # on near-black becomes a transparent-background glyph (alpha
+          # from luminance), so it sits seamlessly on the pure-black
+          # splash. -strip drops the JPEG's EXIF baggage.
+          magick ${../../design/logo.jpg} -resize 256x256 -strip \
+            \( +clone -colorspace gray \) -alpha off \
+            -compose CopyOpacity -composite PNG32:$theme/watermark.png
+
+          # two-step layout: mark dead-center, spinner below it.
+          # Alignments were tuned and screenshot-verified on the VM.
+          cat > $theme/agentic.plymouth <<EOF
+          [Plymouth Theme]
+          Name=agentic-os
+          Description=Brand mark on black
+          ModuleName=two-step
+
+          [two-step]
+          ImageDir=$theme
+          DialogHorizontalAlignment=.5
+          DialogVerticalAlignment=.382
+          TitleHorizontalAlignment=.5
+          TitleVerticalAlignment=.382
+          HorizontalAlignment=.5
+          VerticalAlignment=.68
+          WatermarkHorizontalAlignment=.5
+          WatermarkVerticalAlignment=.5
+          Transition=none
+          TransitionDuration=0.0
+          BackgroundStartColor=0x000000
+          BackgroundEndColor=0x000000
+          ProgressBarBackgroundColor=0x606060
+          ProgressBarForegroundColor=0xffffff
+          MessageBelowAnimation=true
+
+          [boot-up]
+          UseEndAnimation=false
+
+          [shutdown]
+          UseEndAnimation=false
+          EOF
+        '')
+    ];
+  };
+  # vt.global_cursor_default=0 kills the blinking console cursor that
+  # otherwise shows on the black screen before the splash paints.
+  boot.kernelParams = [ "quiet" "splash" "udev.log_level=3" "vt.global_cursor_default=0" ];
+  boot.consoleLogLevel = 3;
+  boot.initrd.verbose = false;
+  # No bootloader menu on a customer device; holding a key at power-on
+  # still summons it for bench work.
+  boot.loader.timeout = 0;
+
   environment.systemPackages = with pkgs; [
     git
     vim

@@ -21,18 +21,25 @@
 
 {
   services.hermes-agent = {
-    # Identity: the shipped behavior spec installed as the agent's
-    # SOUL.md (its primary system-prompt slot). It ships in the closure,
-    # so a bad path fails at build time, not on a customer's counter.
-    documents."SOUL.md" = ../brain/constitution.md;
+    # NOTE: identity does NOT go through `documents` -- that option
+    # installs workspace context files, while hermes reads its identity
+    # (system-prompt slot #1) from $HERMES_HOME/SOUL.md, which upstream
+    # treats as runtime-owned and auto-seeds with the Hermes default.
+    # The first device chat proved it: the agent introduced itself as
+    # "built by Nous Research" with the constitution sitting unused in
+    # the workspace. The tmpfiles rule below owns the identity file
+    # instead.
 
     settings = {
-      # Hermes family via OpenRouter; the local tier (Ollama on capable
-      # hardware) stays in the same model family so behavior is
-      # consistent across the local/cloud switch.
+      # Bare OpenRouter model id, NOT "openrouter/vendor/model": hermes
+      # passes this string to the provider verbatim, and OpenRouter 400s
+      # on the prefixed form ("not a valid model ID" -- hit live on the
+      # first device chat). Shape mirrors a known-good hermes install.
       model = {
         provider = "openrouter";
-        default = "openrouter/nousresearch/hermes-4-70b";
+        default = "x-ai/grok-4.5";
+        base_url = "https://openrouter.ai/api/v1";
+        api_mode = "chat_completions";
       };
       memory.memory_enabled = true;
     };
@@ -60,7 +67,14 @@
   # from this file to authenticate against the local agent API -- same
   # handoff pattern as cloud-keys.toml in the host config. 'z' only
   # adjusts existing files; unprovisioned devices are untouched.
+  #
+  # 'C+' (unconditional copy) pins the constitution as the agent's
+  # identity file on every boot: on this appliance the constitution IS
+  # the identity and stays declarative -- hermes' runtime soul-editing
+  # never survives a reboot. The owner's name/persona still apply per
+  # turn via the UI's system_message overlay, not by editing this file.
   systemd.tmpfiles.rules = [
     "z /etc/agentic-os/hermes.env 0600 admin users - -"
+    "C+ /var/lib/hermes/.hermes/SOUL.md 0660 hermes hermes - ${../brain/constitution.md}"
   ];
 }

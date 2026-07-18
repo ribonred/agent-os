@@ -270,6 +270,16 @@ fn translate_sse_record(record: &str) -> Option<serde_json::Value> {
             let delta = parsed["delta"].as_str()?.to_string();
             Some(serde_json::json!({ "type": "token", "content": delta }))
         }
+        // Internal marker, consumed by the stream loop, never forwarded:
+        // some turns carry their text only here (a non-streaming model,
+        // or the gateway surfacing an API failure as assistant content)
+        // and without this fallback the UI shows "no response" while the
+        // gateway said plenty. Seen live on the first device install.
+        "assistant.completed" => {
+            let parsed: serde_json::Value = serde_json::from_str(&data).ok()?;
+            let content = parsed["content"].as_str()?.to_string();
+            Some(serde_json::json!({ "type": "final", "content": content }))
+        }
         "run.completed" => Some(serde_json::json!({ "type": "done" })),
         name if name.contains("error") || name.contains("failed") => {
             let message = serde_json::from_str::<serde_json::Value>(&data)
@@ -351,6 +361,7 @@ pub async fn agent_chat(
     // separated by a blank line.
     let mut body = response.into_body();
     let mut buf: Vec<u8> = Vec::new();
+    let mut streamed_any_token = false;
     while let Some(frame) = body.frame().await {
         let frame = frame.map_err(|e| format!("chat stream failed mid-response: {e}"))?;
         let Some(data) = frame.data_ref() else {
@@ -360,11 +371,23 @@ pub async fn agent_chat(
         while let Some(boundary) = buf.windows(2).position(|w| w == b"\n\n") {
             let record: Vec<u8> = buf.drain(..boundary + 2).collect();
             let record = String::from_utf8_lossy(&record);
-            if let Some(event) = translate_sse_record(&record) {
-                on_event
-                    .send(event)
-                    .map_err(|e| format!("ui channel closed: {e}"))?;
+            let Some(mut event) = translate_sse_record(&record) else {
+                continue;
+            };
+            if event["type"] == "final" {
+                // Deltas already carried the text; the final full
+                // content is only a fallback for delta-less turns.
+                if streamed_any_token || event["content"].as_str().unwrap_or("").is_empty() {
+                    continue;
+                }
+                event["type"] = serde_json::Value::String("token".into());
             }
+            if event["type"] == "token" {
+                streamed_any_token = true;
+            }
+            on_event
+                .send(event)
+                .map_err(|e| format!("ui channel closed: {e}"))?;
         }
     }
     Ok(())
@@ -389,6 +412,16 @@ mod tests {
         assert_eq!(
             translate_sse_record(record),
             Some(serde_json::json!({ "type": "done" }))
+        );
+    }
+
+    #[test]
+    fn assistant_completed_becomes_final_fallback() {
+        let record =
+            "event: assistant.completed\ndata: {\"content\": \"full reply\", \"completed\": true}\n";
+        assert_eq!(
+            translate_sse_record(record),
+            Some(serde_json::json!({ "type": "final", "content": "full reply" }))
         );
     }
 
@@ -443,6 +476,11 @@ mod tests {
                     match translate_sse_record(&String::from_utf8_lossy(&record)) {
                         Some(ev) if ev["type"] == "token" => {
                             tokens.push_str(ev["content"].as_str().unwrap())
+                        }
+                        Some(ev) if ev["type"] == "final" => {
+                            if tokens.is_empty() {
+                                tokens.push_str(ev["content"].as_str().unwrap())
+                            }
                         }
                         Some(ev) if ev["type"] == "done" => saw_done = true,
                         Some(ev) => panic!("stream error event: {ev}"),
@@ -526,6 +564,8 @@ mod tests {
                     let record: Vec<u8> = buf.drain(..boundary + 2).collect();
                     if let Some(ev) = translate_sse_record(&String::from_utf8_lossy(&record)) {
                         if ev["type"] == "token" {
+                            tokens.push_str(ev["content"].as_str().unwrap());
+                        } else if ev["type"] == "final" && tokens.is_empty() {
                             tokens.push_str(ev["content"].as_str().unwrap());
                         }
                     }

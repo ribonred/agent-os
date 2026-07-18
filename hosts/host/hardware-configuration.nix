@@ -25,6 +25,15 @@
   # USB boot/input, Thunderbolt. Wider than any single unit needs, so the
   # same image boots across storage variants of the same SKU.
   boot.initrd.availableKernelModules = [ "xhci_pci" "thunderbolt" "nvme" "usb_storage" "usbhid" "sd_mod" "ahci" ];
+  # Display drivers in the initrd, deliberately: the boot splash can only
+  # paint once a DRM device exists, and without early KMS the brand mark
+  # appears for a barely-visible flash at the end of boot instead of
+  # covering it (seen on a bench install: long black screen with a
+  # blinking cursor, then the logo for a blink). i915 is the NUC tier;
+  # vmwgfx/virtio_gpu/bochs cover the VMware/QEMU bench VMs. Loading a
+  # driver whose hardware is absent is a no-op, so the union is safe on
+  # every target.
+  boot.initrd.kernelModules = [ "i915" "vmwgfx" "virtio_gpu" "bochs" ];
   boot.kernelModules = [ "kvm-intel" ];
 
   fileSystems."/" = {
