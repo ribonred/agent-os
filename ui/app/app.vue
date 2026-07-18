@@ -7,7 +7,7 @@
 // corrupted store file, a plugin error), treat setup as incomplete and
 // redirect rather than silently letting the user through to the main
 // screen unconfigured. A gate that fails open on error isn't a gate.
-import { isSetupComplete } from "~/lib/setupStore";
+import { firstIncompleteSetupStep } from "~/lib/setupStore";
 
 const route = useRoute();
 
@@ -27,14 +27,14 @@ onMounted(async () => {
   }
 
   if (route.path.startsWith("/setup")) return;
-  let complete: boolean;
+  let missingStep: string | null;
   try {
-    complete = await isSetupComplete();
+    missingStep = await firstIncompleteSetupStep();
   } catch {
-    complete = false;
+    missingStep = "/setup/language";
   }
-  if (!complete) {
-    await navigateTo("/setup/language");
+  if (missingStep !== null) {
+    await navigateTo(missingStep);
   }
 });
 

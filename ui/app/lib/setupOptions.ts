@@ -33,6 +33,11 @@ export const LANGUAGE_OPTIONS: LanguageOption[] = [
   { code: "hi", label: "Hindi", nativeLabel: "हिन्दी" },
 ];
 
+// The naming step's input cap (design/DESIGN.md "Naming screen"). The
+// Rust side enforces its own independent cap -- defense in depth, not
+// shared code.
+export const AGENT_NAME_MAX_LENGTH = 60;
+
 export type PersonaId = "balanced" | "warm-patient" | "straight-efficient" | "formal-precise";
 
 export interface PersonaOption {

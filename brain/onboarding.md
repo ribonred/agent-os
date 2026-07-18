@@ -9,7 +9,7 @@ here as more important than speed or coverage.
 
 ## Mandatory device setup, before any conversation
 
-Two choices happen first, as direct UI selection in the Tauri shell —
+Three choices happen first, as direct UI selection in the Tauri shell —
 not as LLM-generated conversational questions. They're device-level
 setup, not business-context discovery, and they're deterministic enough
 that asking a model to phrase them adds risk (translation/interpretation
@@ -47,10 +47,46 @@ difference, not just a tone-of-voice skin:
 - **Formal & Precise** — a more measured, professional register. Fits
   contexts (clinical, financial) where a casual tone would undercut trust.
 
-The selected persona modulates constitution.md's Tone section for every
-future conversation on this device, not just onboarding. It does not
-change any of the Core Behavior rules (confirm-before-consequential,
-never fabricate, etc.) — those are fixed regardless of persona.
+**Name.** The device ships nameless — the assistant has no built-in
+name (constitution.md), and the owner christens it here. A direct
+free-text input, not an LLM question, for the same determinism reason
+as the other two: this is the one answer that must survive verbatim,
+in any script the owner types. The owner's choice is final until they
+change it. Naming is the moment the device stops being "a box" and
+becomes *theirs* — the screen should feel like that, not like a form
+field (see design/DESIGN.md, "Naming screen").
+
+### How the three choices reach the agent
+
+The selections do not edit the soul file. constitution.md ships
+verbatim as the agent runtime's identity slot (SOUL.md) and stays
+device-generic; the shell applies the owner's choices as a small
+overlay appended on top of it for every conversation turn. The overlay
+only shifts register and language and carries the name — it does not
+change any Core Behavior rule (confirm-before-consequential, never
+fabricate, etc.); those are fixed regardless of persona.
+
+The canonical overlay texts live here; the shell
+(`ui/src-tauri/src/agent.rs`) mirrors them verbatim, same contract as
+the option lists above. Change this file first, then the mirror.
+
+- **Identity** (only when a name is set): "Your owner has named you
+  {name}. That is your name — use it naturally when you introduce
+  yourself or when asked, and never claim a different name or
+  identity."
+- **Language**: "Reply in {language} by default; follow the user's
+  lead if they switch languages."
+- **Balanced**: no overlay — it *is* the baseline defined in
+  constitution.md's Tone section.
+- **Warm & Patient**: "Voice: be warm and patient. Offer more
+  encouragement and more explanation per answer, at a slower pace.
+  Never rush the user or assume familiarity with technology."
+- **Straight & Efficient**: "Voice: be brief and efficient. Minimal
+  small talk, lead with the answer, keep sentences short. The user is
+  busy — every extra sentence costs them time."
+- **Formal & Precise**: "Voice: keep a measured, professional
+  register. Precise wording, no casual phrasing, no exclamation
+  marks. Warmth shows through care and accuracy, not informality."
 
 ## Questions are generated, not scripted
 

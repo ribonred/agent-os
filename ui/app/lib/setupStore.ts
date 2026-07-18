@@ -34,9 +34,37 @@ export async function setPersona(id: PersonaId): Promise<void> {
   await store.save();
 }
 
-// Setup is "done" once both are chosen -- this is what gates the root
-// screen per onboarding.md's mandatory-before-any-conversation rule.
+export async function getAgentName(): Promise<string | null> {
+  const store = await getStore();
+  const name = (await store.get<string>("agentName")) ?? null;
+  return name && name.trim() !== "" ? name : null;
+}
+
+export async function setAgentName(name: string): Promise<void> {
+  const store = await getStore();
+  await store.set("agentName", name.trim());
+  await store.save();
+}
+
+// Setup is "done" once all three are chosen -- this is what gates the
+// root screen per onboarding.md's mandatory-before-any-conversation
+// rule.
 export async function isSetupComplete(): Promise<boolean> {
-  const [language, persona] = await Promise.all([getLanguage(), getPersona()]);
-  return language !== null && persona !== null;
+  return (await firstIncompleteSetupStep()) === null;
+}
+
+// The first missing step in flow order, or null when setup is complete.
+// This is also the whole migration story: a device set up before the
+// naming step existed has language + persona but no name, and lands
+// directly on /setup/name instead of redoing the flow.
+export async function firstIncompleteSetupStep(): Promise<string | null> {
+  const [language, persona, name] = await Promise.all([
+    getLanguage(),
+    getPersona(),
+    getAgentName(),
+  ]);
+  if (language === null) return "/setup/language";
+  if (persona === null) return "/setup/persona";
+  if (name === null) return "/setup/name";
+  return null;
 }

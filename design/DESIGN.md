@@ -94,6 +94,20 @@ States (idle: slow breathe, listening: faster/brighter, thinking:
 different pattern, speaking: synced) modulate the atmosphere and core
 timing -- the layer structure never changes per state.
 
+## Boot identity
+
+The product experience starts at power-on, not at the GUI: the boot
+sequence must show the brand mark on a dark screen and nothing else --
+no scrolling kernel text, no bootloader menu, no login prompt. The mark
+is `design/logo.jpg` (white monogram on near-black), displayed by the
+boot splash (Plymouth) from early boot until the shell's compositor
+takes over: glyph dead-center on pure black, spinner below it. The
+build derives a transparent-background RGBA glyph from the JPEG
+(alpha from luminance) -- the splash renderer composites no-alpha
+images as invisible, and the asset's near-black field would otherwise
+show as a grey seam on the pure-black background. The firmware vendor
+logo that precedes it is outside the OS's control.
+
 ## First-boot greeting
 
 The language-selection screen opens with a cycling greeting -- Halo,
@@ -103,6 +117,28 @@ the one screen where the device cannot know the user's language yet, and
 the cycle *is* the answer: it says "I speak yours" in every supported
 script before a single choice is made. Fixed-height container so the
 swap never shifts layout.
+
+## Naming screen
+
+The third and final setup step, and the product's first free-text input:
+the device asks the owner to give it a name. This is the emotional peak
+of setup -- the moment the box becomes *theirs* -- so it keeps the setup
+screens' ceremony, not a form's bureaucracy:
+
+- Same skeleton as the persona screen: orb (72px) above a thin-weight
+  h1 ("What will you call me?"), bilingual eyebrow ("Beri saya nama ·
+  Give me a name").
+- One centered single-line input styled like the conversation input bar
+  (quiet `--surface` field, max-width ~420px), submit on Enter or a
+  single continue button; the button stays disabled until the trimmed
+  input is non-empty. Max length 60 characters; any script.
+- No suggestions, no placeholder personality names -- the name is the
+  owner's first act of ownership, not a menu choice.
+
+The chosen name lives in the agent's *voice* only (it introduces itself
+by name, answers to it). It does NOT become a name badge, avatar, or
+header in the UI -- the conversation-surface rule below ("the orb is
+the other party") stays exactly as it is.
 
 ## The conversation surface
 
@@ -167,5 +203,6 @@ will need its own motion/interaction spec when it's actually built.
   plus an easy way to pull them off the device when something goes wrong
   is the substitute.
 - **`tauri-plugin-store`** for non-secret preferences (selected language,
-  selected persona). Deliberately NOT used for the OpenRouter API key --
+  selected persona, the owner-given agent name). Deliberately NOT used
+  for the OpenRouter API key --
   that needs OS-keyring-backed storage (task 016), not a plain JSON file.

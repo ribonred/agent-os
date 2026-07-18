@@ -7,7 +7,7 @@ const selecting = ref<string | null>(null);
 async function choose(id: (typeof PERSONA_OPTIONS)[number]["id"]) {
   selecting.value = id;
   await setPersona(id);
-  await navigateTo("/");
+  await navigateTo("/setup/name");
 }
 </script>
 
