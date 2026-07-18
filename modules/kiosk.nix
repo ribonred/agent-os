@@ -32,6 +32,16 @@
       };
     };
 
+    # Start the UI after Hermes has at least launched. The gateway needs
+    # additional time to import its runtime and bind its API socket, so
+    # the UI also performs a bounded readiness wait before first use.
+    # `wants`, rather than `requires`, keeps the appliance UI available
+    # to report a genuine gateway failure instead of leaving a blank tty.
+    systemd.services.cage-tty1 = {
+      wants = [ "hermes-agent.service" ];
+      after = [ "hermes-agent.service" ];
+    };
+
     # Unlock the keyring as part of the cage session's PAM login so the
     # UI's keyring writes work in-session. Caveat, deliberately noted:
     # cage auto-logs-in without a password, so the keyring can only

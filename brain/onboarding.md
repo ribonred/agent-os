@@ -7,9 +7,9 @@ wrong here becomes the foundation everything after it is built on, and it
 often runs on the smallest model available on the device. Treat accuracy
 here as more important than speed or coverage.
 
-## Mandatory device setup, before any conversation
+## Mandatory device setup, before the guided conversation
 
-Three choices happen first, as direct UI selection in the Tauri shell —
+Two choices happen first, as direct UI selection in the Tauri shell —
 not as LLM-generated conversational questions. They're device-level
 setup, not business-context discovery, and they're deterministic enough
 that asking a model to phrase them adds risk (translation/interpretation
@@ -33,38 +33,30 @@ this device ships into:
 Whatever's selected here is the language for everything after, including
 the business-onboarding conversation below.
 
-**Agent personality.** Also a direct selection, not a conversational
-question — a short set of persona presets, each a real behavioral
-difference, not just a tone-of-voice skin:
-
-- **Balanced** (default/recommended) — warm and direct in equal measure.
-  This is the baseline already defined in constitution.md's Tone section.
-- **Warm & Patient** — more encouragement, more explanation per answer,
-  slower pace. Fits a user who's anxious about technology.
-- **Straight & Efficient** — minimal small talk, gets to the point fast.
-  Fits a busy, high-volume setting (a POS counter mid-rush) where every
-  extra sentence costs the user time.
-- **Formal & Precise** — a more measured, professional register. Fits
-  contexts (clinical, financial) where a casual tone would undercut trust.
-
 **Name.** The device ships nameless — the assistant has no built-in
 name (constitution.md), and the owner christens it here. A direct
 free-text input, not an LLM question, for the same determinism reason
-as the other two: this is the one answer that must survive verbatim,
+as language: this is the one answer that must survive verbatim,
 in any script the owner types. The owner's choice is final until they
 change it. Naming is the moment the device stops being "a box" and
 becomes *theirs* — the screen should feel like that, not like a form
 field (see design/DESIGN.md, "Naming screen").
 
-### How the three choices reach the agent
+Fresh devices use the **Balanced** voice from constitution.md during setup.
+How the owner prefers to be addressed — formality, detail, and pace — is one
+of the five unknowns learned in the guided conversation, not another menu.
+Devices upgraded from an earlier release may already carry a persona choice;
+keep applying it rather than forcing the owner through setup again.
+
+### How the two choices reach the agent
 
 The selections do not edit the soul file. constitution.md ships
 verbatim as the agent runtime's identity slot (SOUL.md) and stays
 device-generic; the shell applies the owner's choices as a small
 overlay appended on top of it for every conversation turn. The overlay
-only shifts register and language and carries the name — it does not
+shifts language and carries the name — it does not
 change any Core Behavior rule (confirm-before-consequential, never
-fabricate, etc.); those are fixed regardless of persona.
+fabricate, etc.). A legacy persona, when present, only shifts register.
 
 The canonical overlay texts live here; the shell
 (`ui/src-tauri/src/agent.rs`) mirrors them verbatim, same contract as
@@ -76,8 +68,8 @@ the option lists above. Change this file first, then the mirror.
   identity."
 - **Language**: "Reply in {language} by default; follow the user's
   lead if they switch languages."
-- **Balanced**: no overlay — it *is* the baseline defined in
-  constitution.md's Tone section.
+- **Balanced / no stored persona**: no overlay — it *is* the baseline
+  defined in constitution.md's Tone section.
 - **Warm & Patient**: "Voice: be warm and patient. Offer more
   encouragement and more explanation per answer, at a slower pace.
   Never rush the user or assume familiarity with technology."
@@ -108,6 +100,23 @@ differently worded questions for the same underlying unknown. Ask about
 how many staff and what do you use now") are where small models lose
 track of which part of the answer maps to which fact — don't do it, even
 if it feels slower.
+
+## The agent learns its device at the same time
+
+At the start of the guided conversation, load the shipped device-services
+skill. Use its exact live checks to discover whether Postgres and Redis are
+available and which server versions are actually running. Never infer a
+version from configuration or package metadata.
+
+Save successful checks, including when they were run, to Hermes `MEMORY.md`
+through the built-in `memory` tool's `memory` target. An unavailable service
+is not a reason to invent a version or block learning about the owner; report
+it plainly and leave that service fact unsaved.
+
+Postgres is durable relational storage. Redis is ephemeral cache, queue, and
+session state. You are free to use either when it genuinely helps with the
+owner's work, following the device-services skill. Never put the durable owner
+profile or other lasting business knowledge in Redis.
 
 ## Bounds: 5 to 15 questions
 
@@ -189,3 +198,13 @@ user in one pass and give them a chance to correct anything before it
 becomes the persistent context every future conversation builds on. Any
 unknown left unresolved stays marked unresolved; do not silently default
 it once onboarding formally ends.
+
+After the owner explicitly accepts the summary, write one compact atomic batch
+to Hermes' `memory` tool with `target: "user"`. That `USER.md` content is the
+canonical owner profile: role, concrete needs, vocabulary/entities, boundaries,
+and communication preference. Do not duplicate the profile in Postgres or in
+the shell's settings store. Setup is complete only when the memory tool reports
+a committed successful write, not when the assistant merely says it remembered.
+
+Start normal conversation in a fresh Hermes session after the write so the new
+`USER.md` and `MEMORY.md` snapshots are present in the system prompt.

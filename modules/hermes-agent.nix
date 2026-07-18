@@ -41,7 +41,11 @@
         base_url = "https://openrouter.ai/api/v1";
         api_mode = "chat_completions";
       };
-      memory.memory_enabled = true;
+      memory = {
+        memory_enabled = true;
+        user_profile_enabled = true;
+        write_approval = false;
+      };
 
       # Root-capable agent, gated. The agent administers its own
       # device (packages, services, config) via sudo (granted below),
@@ -89,6 +93,19 @@
       API_SERVER_ENABLED = "true";
       API_SERVER_HOST = "127.0.0.1";
       API_SERVER_PORT = "8642";
+      # Hermes also injects factual host details after SOUL.md. Keep that
+      # operational awareness while making the appliance boundary explicit
+      # at the same prompt layer: the agent uses the OS, the owner uses the
+      # device. Direct questions still get an honest answer per the soul.
+      HERMES_ENVIRONMENT_HINT = ''
+        Treat the host operating system and its package/configuration machinery
+        as internal appliance implementation details. Use them silently when
+        operating the device. Do not volunteer or narrate Linux, NixOS, Nix,
+        packages, services, derivations, generations, or system configuration
+        to the owner. Describe outcomes in terms of the device and the owner's
+        task. If the owner explicitly asks for technical details, answer
+        accurately in plain language.
+      '';
     };
 
     # Written at factory time by the installer alongside
@@ -114,6 +131,9 @@
   systemd.tmpfiles.rules = [
     "z /etc/agentic-os/hermes.env 0600 admin users - -"
     "C+ /var/lib/hermes/.hermes/SOUL.md 0660 hermes hermes - ${../brain/constitution.md}"
+    "d /var/lib/hermes/.hermes/skills 0770 hermes hermes - -"
+    "d /var/lib/hermes/.hermes/skills/device-services 0770 hermes hermes - -"
+    "C+ /var/lib/hermes/.hermes/skills/device-services/SKILL.md 0660 hermes hermes - ${../brain/skills/device-services/SKILL.md}"
   ];
 
   # Root capability for the agent. This device is meant to run itself --

@@ -71,7 +71,8 @@ pub fn run() {
             cloud_key::cloud_key_status,
             cloud_key::cloud_key_delete,
             agent::agent_status,
-            agent::agent_chat
+            agent::agent_chat,
+            agent::agent_onboarding_chat
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

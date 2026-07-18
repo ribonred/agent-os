@@ -1,10 +1,10 @@
 <script setup lang="ts">
-// The third and final setup step (design/DESIGN.md "Naming screen"):
+// The second deterministic setup step (design/DESIGN.md "Naming screen"):
 // the owner christens the device. The product's first free-text input
 // -- no suggestions, no placeholder names; the name is the owner's
 // first act of ownership, not a menu choice.
 import { AGENT_NAME_MAX_LENGTH } from "~/lib/setupOptions";
-import { setAgentName } from "~/lib/setupStore";
+import { beginOnboarding } from "~/lib/setupStore";
 
 const name = ref("");
 const saving = ref(false);
@@ -14,8 +14,8 @@ const ready = computed(() => name.value.trim() !== "");
 async function choose() {
   if (!ready.value || saving.value) return;
   saving.value = true;
-  await setAgentName(name.value);
-  await navigateTo("/");
+  await beginOnboarding(name.value);
+  await navigateTo("/setup/onboarding");
 }
 </script>
 

@@ -46,25 +46,52 @@ export async function setAgentName(name: string): Promise<void> {
   await store.save();
 }
 
-// Setup is "done" once all three are chosen -- this is what gates the
-// root screen per onboarding.md's mandatory-before-any-conversation
-// rule.
+export async function beginOnboarding(name: string): Promise<void> {
+  const store = await getStore();
+  await store.set("agentName", name.trim());
+  await store.set("onboardingStarted", true);
+  await store.set("onboardingQuestionCount", 0);
+  await store.save();
+}
+
+export async function getOnboardingQuestionCount(): Promise<number> {
+  const store = await getStore();
+  const count = (await store.get<number>("onboardingQuestionCount")) ?? 0;
+  return Number.isInteger(count) && count >= 0 ? count : 0;
+}
+
+export async function setOnboardingQuestionCount(count: number): Promise<void> {
+  const store = await getStore();
+  await store.set("onboardingQuestionCount", Math.max(0, Math.min(15, Math.trunc(count))));
+  await store.save();
+}
+
+export async function completeOnboarding(): Promise<void> {
+  const store = await getStore();
+  await store.set("onboardingComplete", true);
+  await store.save();
+}
+
 export async function isSetupComplete(): Promise<boolean> {
   return (await firstIncompleteSetupStep()) === null;
 }
 
-// The first missing step in flow order, or null when setup is complete.
-// This is also the whole migration story: a device set up before the
-// naming step existed has language + persona but no name, and lands
-// directly on /setup/name instead of redoing the flow.
+// A persona is never written by the new two-screen flow, so all three
+// legacy values together prove that an upgraded device completed the
+// old setup. Incomplete old setups join the new flow at the first value
+// they still need.
 export async function firstIncompleteSetupStep(): Promise<string | null> {
-  const [language, persona, name] = await Promise.all([
+  const store = await getStore();
+  const [language, persona, name, onboardingStarted, onboardingComplete] = await Promise.all([
     getLanguage(),
     getPersona(),
     getAgentName(),
+    store.get<boolean>("onboardingStarted"),
+    store.get<boolean>("onboardingComplete"),
   ]);
   if (language === null) return "/setup/language";
-  if (persona === null) return "/setup/persona";
   if (name === null) return "/setup/name";
-  return null;
+  if (onboardingComplete === true) return null;
+  if (persona !== null && onboardingStarted !== true) return null;
+  return "/setup/onboarding";
 }

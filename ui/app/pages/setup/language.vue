@@ -31,7 +31,7 @@ onUnmounted(() => clearInterval(timer));
 async function choose(code: (typeof LANGUAGE_OPTIONS)[number]["code"]) {
   selecting.value = code;
   await setLanguage(code);
-  await navigateTo("/setup/persona");
+  await navigateTo("/setup/name");
 }
 </script>
 

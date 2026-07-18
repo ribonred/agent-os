@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { waitForAgentReady } from "~/lib/agentStatus";
-
-// The conversation surface (design/DESIGN.md): the orb is the other
-// party, assistant text renders bare on the canvas, user messages are
-// quiet pills, streaming is visible, errors are spoken in the flow.
+import {
+  completeOnboarding,
+  getOnboardingQuestionCount,
+  setOnboardingQuestionCount,
+} from "~/lib/setupStore";
 
 type Entry =
   | { kind: "user"; content: string }
@@ -20,41 +21,30 @@ const entries = ref<Entry[]>([]);
 const input = ref("");
 const busy = ref(false);
 const streaming = ref(false);
+const finished = ref(false);
 const daemonError = ref<string | null>(null);
+const questionCount = ref(0);
 const scroller = ref<HTMLElement | null>(null);
 
-// Orb rhythm is the only status indicator: thinking between send and
-// first token, speaking while tokens flow, idle otherwise.
 const orbState = computed(() =>
   busy.value ? (streaming.value ? "speaking" : "thinking") : "idle",
 );
-
-onMounted(async () => {
-  try {
-    await waitForAgentReady();
-  } catch (e) {
-    daemonError.value = String(e);
-  }
-});
 
 async function autoscroll() {
   await nextTick();
   scroller.value?.scrollTo({ top: scroller.value.scrollHeight });
 }
 
-async function send() {
-  const content = input.value.trim();
-  if (!content || busy.value) return;
-  input.value = "";
+async function runTurn(content?: string) {
+  if (busy.value || finished.value) return;
   busy.value = true;
   streaming.value = false;
-  entries.value.push({ kind: "user", content });
-  await autoscroll();
-
-  // Only the new turn is sent: the Hermes gateway owns the conversation
-  // history server-side, scoped to the session the Rust layer holds.
+  if (content) {
+    entries.value.push({ kind: "user", content });
+  }
   entries.value.push({ kind: "assistant", content: "" });
   const replyIndex = entries.value.length - 1;
+  await autoscroll();
 
   const onEvent = new Channel<StreamEvent>();
   onEvent.onmessage = (event) => {
@@ -68,43 +58,65 @@ async function send() {
       entries.value[replyIndex] = { kind: "error", content: event.message };
       autoscroll();
     }
-    // "done" is bookkeeping only -- nothing to show.
   };
 
   try {
-    await invoke("agent_chat", { input: content, onEvent });
-    // An empty reply with no error event means the stream never
-    // produced content -- say so rather than leaving a blank line.
+    const profileCommitted = await invoke<boolean>("agent_onboarding_chat", {
+      input: content ?? null,
+      questionCount: questionCount.value,
+      onEvent,
+    });
     const reply = entries.value[replyIndex];
     if (reply && reply.kind === "assistant" && reply.content === "") {
       entries.value[replyIndex] = {
         kind: "error",
         content: "The assistant returned no response.",
       };
+      return;
     }
-  } catch (e) {
-    entries.value[replyIndex] = { kind: "error", content: String(e) };
+    if (profileCommitted) {
+      await completeOnboarding();
+      finished.value = true;
+    } else {
+      questionCount.value = Math.min(15, questionCount.value + 1);
+      await setOnboardingQuestionCount(questionCount.value);
+    }
+  } catch (error) {
+    entries.value[replyIndex] = { kind: "error", content: String(error) };
   } finally {
     busy.value = false;
     streaming.value = false;
     await autoscroll();
   }
 }
+
+async function send() {
+  const content = input.value.trim();
+  if (!content || busy.value || finished.value) return;
+  input.value = "";
+  await runTurn(content);
+}
+
+onMounted(async () => {
+  try {
+    await waitForAgentReady();
+    questionCount.value = await getOnboardingQuestionCount();
+    await runTurn();
+  } catch (error) {
+    daemonError.value = String(error);
+  }
+});
 </script>
 
 <template>
   <main>
     <header class="enter-fade">
-      <NuxtLink class="back" to="/" aria-label="Back to home">‹</NuxtLink>
       <PresenceOrb :size="48" :orb-state="orbState" />
     </header>
 
-    <section ref="scroller" class="conversation">
+    <section ref="scroller" class="conversation" aria-live="polite">
       <p v-if="daemonError" class="error" role="alert">{{ daemonError }}</p>
-      <p v-else-if="entries.length === 0" class="empty enter-fade">
-        Ask me anything.
-      </p>
-      <template v-for="(entry, i) in entries" :key="i">
+      <template v-for="(entry, index) in entries" :key="index">
         <p v-if="entry.kind === 'user'" class="user">{{ entry.content }}</p>
         <p v-else-if="entry.kind === 'assistant'" class="assistant">
           {{ entry.content }}
@@ -113,15 +125,25 @@ async function send() {
       </template>
     </section>
 
-    <form @submit.prevent="send">
+    <form v-if="!finished" @submit.prevent="send">
       <input
         v-model="input"
         type="text"
-        placeholder="Say something…"
+        placeholder="Your answer…"
         :disabled="busy || daemonError !== null"
         autocomplete="off"
+        autofocus
       />
     </form>
+    <NuxtLink
+      v-else
+      class="continue"
+      to="/"
+      aria-label="Continue to home"
+      title="Continue"
+    >
+      →
+    </NuxtLink>
   </main>
 </template>
 
@@ -139,23 +161,9 @@ header {
   display: flex;
   align-items: center;
   justify-content: center;
-  position: relative;
   width: 100%;
   max-width: 680px;
   padding: 0.5rem 0 1rem;
-}
-
-.back {
-  position: absolute;
-  left: 1.5rem;
-  color: var(--text-secondary);
-  font-size: 1.6rem;
-  line-height: 1;
-  text-decoration: none;
-}
-
-.back:hover {
-  color: var(--text-primary);
 }
 
 .conversation {
@@ -169,15 +177,6 @@ header {
   padding: 0.5rem 1.5rem;
 }
 
-.empty {
-  margin: auto;
-  color: var(--text-secondary);
-  font-size: 1.05rem;
-  font-weight: 300;
-  letter-spacing: 0.02em;
-}
-
-/* The device speaking: bare text on the canvas, full measure */
 .assistant {
   margin: 0;
   color: var(--text-primary);
@@ -186,7 +185,6 @@ header {
   white-space: pre-wrap;
 }
 
-/* The user's words are context: quiet, right-aligned pill */
 .user {
   margin: 0;
   align-self: flex-end;
@@ -224,13 +222,30 @@ input {
   font-size: 0.98rem;
 }
 
-input:focus-visible {
+input:focus-visible,
+.continue:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline-offset: 2px;
 }
 
 input:disabled {
   opacity: 0.55;
+}
+
+.continue {
+  width: 2.75rem;
+  height: 2.75rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 50%;
+  color: var(--text-primary);
+  font-size: 1.25rem;
+  text-decoration: none;
+}
+
+.continue:hover {
+  background: var(--surface-raised);
 }
 
 .enter-fade {

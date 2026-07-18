@@ -120,7 +120,7 @@ swap never shifts layout.
 
 ## Naming screen
 
-The third and final setup step, and the product's first free-text input:
+The second deterministic setup step, and the product's first free-text input:
 the device asks the owner to give it a name. This is the emotional peak
 of setup -- the moment the box becomes *theirs* -- so it keeps the setup
 screens' ceremony, not a form's bureaucracy:
@@ -139,6 +139,25 @@ The chosen name lives in the agent's *voice* only (it introduces itself
 by name, answers to it). It does NOT become a name badge, avatar, or
 header in the UI -- the conversation-surface rule below ("the orb is
 the other party") stays exactly as it is.
+
+## Guided onboarding conversation
+
+Naming flows directly into a dedicated conversation where the agent speaks
+first. This is still setup, not the normal chat screen:
+
+- Reuse the conversation surface's 48px orb, bare assistant text, quiet owner
+  messages, streaming behavior, and single bottom input. The product should
+  feel continuous as it moves from being named to getting acquainted.
+- No back control and no generic "Ask me anything" empty state. The agent's
+  first generated question appears automatically.
+- Keep service discovery invisible unless a check fails or the owner asks.
+  Postgres/Redis versions are agent context, not a technical setup dashboard.
+- Profile review happens in the same conversation. The agent presents one
+  compact summary; the owner answers naturally with confirmation or a
+  correction. Do not turn the five unknowns into cards or a form.
+- Home becomes available only after the confirmed profile is actually saved.
+  The transition should feel like the conversation opening up, not a success
+  ceremony or administrative completion screen.
 
 ## The conversation surface
 

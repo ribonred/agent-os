@@ -25,6 +25,8 @@ fn base_url() -> String {
 /// about its owner persists.
 const MEMORY_SCOPE: &str = "agentic-os:device:main";
 
+const ONBOARDING_PROTOCOL: &str = "You are guiding the device's first conversation with its owner. Load the device-services skill and silently run its live PostgreSQL and Redis checks at the start; save only successful checks to the memory target. Learn exactly these five areas: the owner's role and context, concrete needs, vocabulary and important entities, boundaries and sensitivities, and communication preference. Ask one clear question at a time, adapting only from answers already given. Never infer or save an unconfirmed profile fact. After at least five discovery questions, summarize all five areas in plain language and ask for explicit confirmation. At fifteen discovery questions, stop asking new discovery questions and summarize even if some areas remain unresolved. Corrections update the summary and require confirmation again. Only after explicit acceptance, make one atomic memory tool batch with target user containing a compact profile covering all five areas. Do not claim setup is complete unless that tool call succeeds. Do not discuss operating-system or service internals unless the owner asks.";
+
 // ---------------------------------------------------------------------
 // The soul overlay: the owner's setup choices (name, persona, language)
 // applied on top of the shipped constitution. The gateway appends a
@@ -140,6 +142,45 @@ fn overlay_from_store(app: &tauri::AppHandle) -> Option<String> {
     compose_overlay(name.as_deref(), persona.as_deref(), language.as_deref())
 }
 
+fn onboarding_overlay(app: &tauri::AppHandle, question_count: u8) -> String {
+    let setup = overlay_from_store(app).unwrap_or_default();
+    let progress = format!(
+        "The shell has counted {question_count} discovery questions so far. Treat this count as authoritative."
+    );
+    [setup, ONBOARDING_PROTOCOL.to_string(), progress]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn stored_onboarding_session(app: &tauri::AppHandle) -> Option<String> {
+    use tauri_plugin_store::StoreExt;
+    app.store("settings.json")
+        .ok()?
+        .get("onboardingSessionId")?
+        .as_str()
+        .map(str::to_string)
+}
+
+fn save_onboarding_session(
+    app: &tauri::AppHandle,
+    session_id: Option<&str>,
+) -> Result<(), String> {
+    use tauri_plugin_store::StoreExt;
+    let store = app
+        .store("settings.json")
+        .map_err(|e| format!("could not open setup store: {e}"))?;
+    if let Some(session_id) = session_id {
+        store.set("onboardingSessionId", session_id);
+    } else {
+        store.delete("onboardingSessionId");
+    }
+    store
+        .save()
+        .map_err(|e| format!("could not save setup store: {e}"))
+}
+
 /// Reads `API_SERVER_KEY=...` out of an env-format file.
 fn key_from_env_file(path: &std::path::Path) -> Option<String> {
     let content = std::fs::read_to_string(path).ok()?;
@@ -180,9 +221,14 @@ fn http_client() -> Client<HttpConnector, Full<Bytes>> {
     Client::builder(TokioExecutor::new()).build_http()
 }
 
-/// One gateway session per app run, created lazily on first chat.
+/// Normal chat and onboarding never share a transcript. Once onboarding
+/// commits USER.md, normal chat creates a fresh session whose frozen prompt
+/// includes the new profile.
 #[derive(Default)]
-pub struct AgentSession(Mutex<Option<String>>);
+pub struct AgentSession {
+    chat: Mutex<Option<String>>,
+    onboarding: Mutex<Option<String>>,
+}
 
 #[tauri::command]
 pub async fn agent_status() -> Result<serde_json::Value, String> {
@@ -297,22 +343,96 @@ fn translate_sse_record(record: &str) -> Option<serde_json::Value> {
     }
 }
 
-#[tauri::command]
-pub async fn agent_chat(
-    input: String,
-    app: tauri::AppHandle,
-    session: tauri::State<'_, AgentSession>,
-    on_event: Channel<serde_json::Value>,
-) -> Result<(), String> {
-    let key = api_key()?;
-    let overlay = overlay_from_store(&app);
+async fn session_messages(key: &str, session_id: &str) -> Result<serde_json::Value, String> {
+    let uri: hyper::Uri = format!("{}/api/sessions/{session_id}/messages", base_url())
+        .parse()
+        .map_err(|e| format!("bad gateway URL: {e}"))?;
+    let request = hyper::Request::get(uri)
+        .header("authorization", format!("Bearer {key}"))
+        .body(Full::new(Bytes::new()))
+        .map_err(|e| format!("could not build transcript request: {e}"))?;
+    let response = http_client()
+        .request(request)
+        .await
+        .map_err(|e| format!("agent gateway unreachable: {e}"))?;
+    let status = response.status();
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .map_err(|e| format!("transcript response failed: {e}"))?
+        .to_bytes();
+    if !status.is_success() {
+        return Err(format!(
+            "agent gateway refused transcript ({status}): {}",
+            String::from_utf8_lossy(&body)
+        ));
+    }
+    serde_json::from_slice(&body).map_err(|e| format!("invalid transcript JSON: {e}"))
+}
 
-    // Hold the lock across the whole turn: the gateway serializes turns
-    // per session anyway, and this keeps a second send from racing
-    // session creation.
-    let mut session_id = session.0.lock().await;
+fn json_arguments(value: &serde_json::Value) -> Option<serde_json::Value> {
+    if let Some(text) = value.as_str() {
+        serde_json::from_str(text).ok()
+    } else if value.is_object() {
+        Some(value.clone())
+    } else {
+        None
+    }
+}
+
+fn has_committed_user_memory_write(transcript: &serde_json::Value) -> bool {
+    use std::collections::HashSet;
+
+    let Some(messages) = transcript["data"].as_array() else {
+        return false;
+    };
+    let mut user_write_calls = HashSet::new();
+    for message in messages {
+        let Some(calls) = message["tool_calls"].as_array() else {
+            continue;
+        };
+        for call in calls {
+            let Some(id) = call["id"].as_str() else {
+                continue;
+            };
+            let function = &call["function"];
+            let name = function["name"].as_str().or(call["name"].as_str());
+            let arguments = function.get("arguments").or_else(|| call.get("arguments"));
+            let is_user_write = name == Some("memory")
+                && arguments
+                    .and_then(json_arguments)
+                    .is_some_and(|args| args["target"] == "user");
+            if is_user_write {
+                user_write_calls.insert(id);
+            }
+        }
+    }
+
+    messages.iter().any(|message| {
+        let Some(call_id) = message["tool_call_id"].as_str() else {
+            return false;
+        };
+        if !user_write_calls.contains(call_id) {
+            return false;
+        }
+        let result = message
+            .get("content")
+            .and_then(json_arguments)
+            .unwrap_or(serde_json::Value::Null);
+        result["success"] == true && result["staged"] != true
+    })
+}
+
+async fn stream_chat_turn(
+    input: String,
+    overlay: Option<String>,
+    key: &str,
+    session_id: &mut Option<String>,
+    on_event: &Channel<serde_json::Value>,
+) -> Result<String, String> {
     if session_id.is_none() {
-        *session_id = Some(create_session(&key).await?);
+        *session_id = Some(create_session(key).await?);
     }
     let id = session_id.as_ref().expect("session id set above").clone();
 
@@ -321,9 +441,6 @@ pub async fn agent_chat(
         .map_err(|e| format!("bad gateway URL: {e}"))?;
     let mut body = serde_json::json!({ "input": input });
     if let Some(overlay) = overlay {
-        // Applied by the gateway as an ephemeral system message after
-        // its assembled core prompt -- per-turn, so a changed persona
-        // or name takes effect on the very next send.
         body["system_message"] = serde_json::Value::String(overlay);
     }
     let payload =
@@ -339,44 +456,36 @@ pub async fn agent_chat(
         .request(request)
         .await
         .map_err(|e| format!("agent gateway unreachable: {e}"))?;
-
     let status = response.status();
     if !status.is_success() {
         let body = response
             .into_body()
             .collect()
             .await
-            .map(|b| String::from_utf8_lossy(&b.to_bytes()).into_owned())
+            .map(|body| String::from_utf8_lossy(&body.to_bytes()).into_owned())
             .unwrap_or_default();
-        // A dead session (gateway restarted, session evicted) shouldn't
-        // wedge the app until relaunch -- drop it so the next send
-        // starts fresh.
         if status == hyper::StatusCode::NOT_FOUND {
             *session_id = None;
         }
         return Err(format!("agent gateway rejected chat ({status}): {body}"));
     }
 
-    // Reassemble SSE records across frame boundaries; records are
-    // separated by a blank line.
     let mut body = response.into_body();
-    let mut buf: Vec<u8> = Vec::new();
+    let mut buffer: Vec<u8> = Vec::new();
     let mut streamed_any_token = false;
     while let Some(frame) = body.frame().await {
         let frame = frame.map_err(|e| format!("chat stream failed mid-response: {e}"))?;
         let Some(data) = frame.data_ref() else {
             continue;
         };
-        buf.extend_from_slice(data);
-        while let Some(boundary) = buf.windows(2).position(|w| w == b"\n\n") {
-            let record: Vec<u8> = buf.drain(..boundary + 2).collect();
+        buffer.extend_from_slice(data);
+        while let Some(boundary) = buffer.windows(2).position(|window| window == b"\n\n") {
+            let record: Vec<u8> = buffer.drain(..boundary + 2).collect();
             let record = String::from_utf8_lossy(&record);
             let Some(mut event) = translate_sse_record(&record) else {
                 continue;
             };
             if event["type"] == "final" {
-                // Deltas already carried the text; the final full
-                // content is only a fallback for delta-less turns.
                 if streamed_any_token || event["content"].as_str().unwrap_or("").is_empty() {
                     continue;
                 }
@@ -390,7 +499,64 @@ pub async fn agent_chat(
                 .map_err(|e| format!("ui channel closed: {e}"))?;
         }
     }
+    Ok(id)
+}
+
+#[tauri::command]
+pub async fn agent_chat(
+    input: String,
+    app: tauri::AppHandle,
+    session: tauri::State<'_, AgentSession>,
+    on_event: Channel<serde_json::Value>,
+) -> Result<(), String> {
+    let key = api_key()?;
+    let overlay = overlay_from_store(&app);
+    let mut session_id = session.chat.lock().await;
+    stream_chat_turn(input, overlay, &key, &mut session_id, &on_event).await?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn agent_onboarding_chat(
+    input: Option<String>,
+    question_count: u8,
+    app: tauri::AppHandle,
+    session: tauri::State<'_, AgentSession>,
+    on_event: Channel<serde_json::Value>,
+) -> Result<bool, String> {
+    let key = api_key()?;
+    let overlay = onboarding_overlay(&app, question_count.min(15));
+    let mut session_id = session.onboarding.lock().await;
+    if session_id.is_none() {
+        *session_id = stored_onboarding_session(&app);
+    }
+    let continuing = session_id.is_some();
+    let input = input
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| {
+            if continuing {
+                "Continue onboarding from our existing conversation. Briefly reconnect to the last confirmed context and ask the next needed question.".to_string()
+            } else {
+                "Begin onboarding now. Introduce yourself by the owner-given name and ask the first discovery question.".to_string()
+            }
+        });
+    let id = match stream_chat_turn(input, Some(overlay), &key, &mut session_id, &on_event).await {
+        Ok(id) => id,
+        Err(error) => {
+            if session_id.is_none() {
+                save_onboarding_session(&app, None)?;
+            }
+            return Err(error);
+        }
+    };
+    save_onboarding_session(&app, Some(&id))?;
+    let transcript = session_messages(&key, &id).await?;
+    let committed = has_committed_user_memory_write(&transcript);
+    if committed {
+        save_onboarding_session(&app, None)?;
+        *session_id = None;
+    }
+    Ok(committed)
 }
 
 #[cfg(test)]
@@ -527,6 +693,61 @@ mod tests {
         assert!(full.contains("Bahasa Indonesia"));
         let lang_only = compose_overlay(None, Some("garbage"), Some("ja")).unwrap();
         assert!(lang_only.starts_with("Reply in Japanese"));
+    }
+
+    fn transcript_for_memory_call(target: &str, result: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({
+            "data": [
+                {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": "call_profile",
+                        "type": "function",
+                        "function": {
+                            "name": "memory",
+                            "arguments": serde_json::json!({
+                                "target": target,
+                                "operations": [{ "action": "add", "content": "Role: owner" }]
+                            }).to_string()
+                        }
+                    }]
+                },
+                {
+                    "role": "tool",
+                    "tool_name": "memory",
+                    "tool_call_id": "call_profile",
+                    "content": result.to_string()
+                }
+            ]
+        })
+    }
+
+    #[test]
+    fn committed_user_memory_write_completes_onboarding() {
+        let transcript = transcript_for_memory_call(
+            "user",
+            serde_json::json!({ "success": true, "entries": 1 }),
+        );
+        assert!(has_committed_user_memory_write(&transcript));
+    }
+
+    #[test]
+    fn staged_failed_or_general_memory_writes_do_not_complete_onboarding() {
+        let staged = transcript_for_memory_call(
+            "user",
+            serde_json::json!({ "success": true, "staged": true }),
+        );
+        let failed = transcript_for_memory_call(
+            "user",
+            serde_json::json!({ "success": false, "error": "full" }),
+        );
+        let service_fact = transcript_for_memory_call(
+            "memory",
+            serde_json::json!({ "success": true, "entries": 1 }),
+        );
+        assert!(!has_committed_user_memory_write(&staged));
+        assert!(!has_committed_user_memory_write(&failed));
+        assert!(!has_committed_user_memory_write(&service_fact));
     }
 
     /// Named-identity round-trip against a live gateway; opt-in:
