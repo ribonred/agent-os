@@ -1,4 +1,4 @@
-{ ... }:
+{ lib, ... }:
 
 # Hermes Agent as the device's agent runtime -- scaffolded, not yet
 # live. Everything below is inert until services.hermes-agent.enable is
@@ -42,6 +42,44 @@
         api_mode = "chat_completions";
       };
       memory.memory_enabled = true;
+
+      # Root-capable agent, gated. The agent administers its own
+      # device (packages, services, config) via sudo (granted below),
+      # so it is a real admin -- but every action hermes' detector
+      # flags as dangerous stops and asks the owner first. That is the
+      # product's whole safety posture in one line:
+      #   - harmless          -> just do it
+      #   - break-the-system / -> "manual" halts the run and surfaces an
+      #     data-loss / money      approval.request the owner taps to
+      #                            approve or deny (approval_events over
+      #                            the sessions API -> a confirm prompt
+      #                            in chat)
+      #   - unrecoverable     -> hermes' HARDLINE floor blocks it
+      #                          outright (disk wipe at /, block-device
+      #                          overwrite, power-off) -- not even an
+      #                          approval can pass it, by upstream design
+      # `deny` is our own never-list on top of that floor: fnmatch
+      # globs matched before any approval/bypass. Deliberately tiny --
+      # this is the owner's own device with no separate admin and no
+      # settings UI, so the agent IS the administrator: it may change
+      # its own approval policy (config.yaml), install/remove software,
+      # edit system config, all of it. The owner relaxing "stop asking
+      # before X" happens THROUGH the agent, so banning policy edits
+      # would lock the owner out of their own device. HARDLINE already
+      # blocks the unrecoverable cases.
+      #
+      # The only carve-out is the provisioned credentials: the vendor
+      # OpenRouter key and the device auth token. Destroying or
+      # exfiltrating those is never "the owner administering their
+      # device" -- it has no upside and a leaked key bills the vendor.
+      # This is about the secrets, not about restricting the agent.
+      approvals = {
+        mode = "manual";
+        deny = [
+          "*/etc/agentic-os/hermes.env*"
+          "*cloud-keys.toml*"
+        ];
+      };
     };
 
     # Non-secret API-server switches. The secrets live in the
@@ -77,4 +115,38 @@
     "z /etc/agentic-os/hermes.env 0600 admin users - -"
     "C+ /var/lib/hermes/.hermes/SOUL.md 0660 hermes hermes - ${../brain/constitution.md}"
   ];
+
+  # Root capability for the agent. This device is meant to run itself --
+  # install packages, edit config, manage services -- on behalf of a
+  # non-technical owner, so the agent user gets passwordless sudo. The
+  # safety boundary is NOT "restrict what it can reach" but "confirm
+  # before harm": the approvals gate above stops dangerous actions for
+  # the owner, and hermes' HARDLINE floor blocks the unrecoverable ones
+  # regardless. Granting a narrow allowlist instead was considered and
+  # rejected -- an appliance that hits a wall on every unforeseen admin
+  # task is not the self-running product.
+  security.sudo.extraRules = [{
+    users = [ "hermes" ];
+    commands = [{
+      command = "ALL";
+      options = [ "NOPASSWD" "SETENV" ];
+    }];
+  }];
+
+  # The upstream service hardening makes sudo physically impossible and
+  # the filesystem read-only -- both must be lifted for a root-capable
+  # agent, or the sudoers rule above is dead letter:
+  #   - NoNewPrivileges=true tells the kernel to refuse ANY setuid
+  #     escalation, so sudo cannot elevate no matter the sudoers config.
+  #   - ProtectSystem=strict mounts the whole fs read-only for the
+  #     service, so even as root it could not change the system.
+  # Lifting these widens the blast radius by design; the approval gate
+  # is what keeps that safe, not the sandbox. Revisit if a future
+  # capability-scoped approach can grant admin without full unconfinement
+  # (an auto-recovery layer -- snapshot the NixOS generation before
+  # harmless changes, roll back on damage -- is the planned complement).
+  systemd.services.hermes-agent.serviceConfig = {
+    NoNewPrivileges = lib.mkForce false;
+    ProtectSystem = lib.mkForce false;
+  };
 }
