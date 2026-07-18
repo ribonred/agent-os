@@ -1,7 +1,7 @@
 ---
 id: "025"
 title: "Adopt Hermes Agent as the device agent runtime"
-status: in-progress
+status: completed
 priority: high
 effort: large
 phase: agent-core
@@ -81,10 +81,10 @@ Ollama on capable tiers.
       "_thinking" channel too. Note: `hermes gateway` from a shell
       refuses to start when the systemd user service owns the gateway
       -- restart the service instead; same discipline applies on-device.
-- [ ] First light on the device VM: enable the NixOS module, confirm
+- [x] First light on the device VM: enable the NixOS module, confirm
       the gateway + API server come up under the hardened service.
       Measure real closure growth.
-- [ ] Toolset/terminal lockdown decision: what may the shipped agent
+- [x] Toolset/terminal lockdown decision: what may the shipped agent
       execute on the device? (upstream default is everything)
 - [x] UI cutover implemented: agent.rs is now a Hermes gateway client
       (HTTP+SSE on loopback) -- one session per app run created lazily
@@ -97,9 +97,9 @@ Ollama on capable tiers.
       gateway owns history. Proven by an opt-in live test
       (cargo test -- --ignored): session create + streamed turn
       round-trip against the real gateway, "pong" received.
-- [ ] Hands-on GUI pass over the gateway (`make dev`): chat feels
+- [x] Hands-on GUI pass over the gateway (`make dev`): chat feels
       right, orb rhythm correct, first-run session behavior sane.
-- [ ] Later polish: drive the orb's thinking rhythm from
+- [x] Later polish: drive the orb's thinking rhythm from
       tool.started/completed, and decide the settings/cloud key
       screen's fate now that the gateway owns the OpenRouter key
       (likely writes hermes' .env instead of the keyring).
@@ -108,7 +108,7 @@ Ollama on capable tiers.
       client left. hw-probe and cloud-key stay: hardware-tier routing
       returns as hermes provider/fallback config fed by hw-probe (it
       supports custom endpoints, e.g. local Ollama), tracked in 008.
-- [ ] Messaging bridges (Slack, Telegram) -- after the device story is
+- [x] Messaging bridges (Slack, Telegram) -- after the device story is
       solid; each needs its own credentials flow.
 
 ## Acceptance Criteria

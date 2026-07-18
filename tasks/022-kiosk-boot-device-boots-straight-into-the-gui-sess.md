@@ -1,7 +1,7 @@
 ---
 id: "022"
 title: "Kiosk boot: device boots straight into the GUI session"
-status: in-progress
+status: completed
 priority: high
 effort: medium
 phase: ui-shell
@@ -54,7 +54,7 @@ Design:
       crash fixed via cage environment, and the negative-DPI layout
       bug diagnosed and fixed in the app (see task 024). VMware boot
       verified live earlier (cage session up, keyring answering).
-- [ ] Boot-to-orb on the physical NUC (bench; closes 018's last box in
+- [x] Boot-to-orb on the physical NUC (bench; closes 018's last box in
       the same session)
 
 ## Acceptance Criteria

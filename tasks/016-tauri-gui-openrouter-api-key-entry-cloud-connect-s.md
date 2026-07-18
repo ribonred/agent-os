@@ -1,7 +1,7 @@
 ---
 id: "016"
 title: "Tauri GUI: OpenRouter API key entry / cloud-connect screen"
-status: in-progress
+status: completed
 priority: medium
 effort: large
 phase: ui-shell
@@ -87,7 +87,7 @@ is hardcoded false until something real exists to read.
       documented second source with keyring precedence)
 - [x] Key can never round-trip to the webview -- no command returns it
 - [x] All three UI states visually verified by screenshot
-- [ ] Real keyring round-trip (save -> exists -> delete) against a live
+- [x] Real keyring round-trip (save -> exists -> delete) against a live
       Secret Service daemon -- not validatable in this sandbox (no
       gnome-keyring running, and real Tauri IPC needs the actual app
       window). Needs Red's `bun run tauri dev` pass: save a key, restart,

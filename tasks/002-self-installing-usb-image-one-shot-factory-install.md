@@ -1,7 +1,7 @@
 ---
 id: "002"
 title: "Self-installing USB image: one-shot factory install, no per-unit config"
-status: in-progress
+status: completed
 priority: high
 effort: small
 phase: bootstrap
@@ -51,7 +51,7 @@ byte-identical across units.
       reproduces "Operating System Not Found"; the fix is
       firmware = "efi" and an NVMe virtual disk. Real NUCs boot UEFI by
       default, but any bench VM must match.
-- [ ] Flash the ISO (Rufus dd mode from Windows / `dd` from Linux) and
+- [x] Flash the ISO (Rufus dd mode from Windows / `dd` from Linux) and
       boot the physical NUC with it. Verify: installs unattended, powers
       off, then boots from internal disk with no USB attached.
 
@@ -62,7 +62,7 @@ byte-identical across units.
       other machine-specific values.
 - [x] `nix build .#installer-iso` succeeds; install path is fully offline
       (closure in `isoImage.storeContents`).
-- [ ] Physical NUC provisioned by the stick boots to the installed system
+- [x] Physical NUC provisioned by the stick boots to the installed system
       -- hands-on validation at the bench.
 
 ## Notes

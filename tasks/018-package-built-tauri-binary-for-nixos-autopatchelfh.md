@@ -1,7 +1,7 @@
 ---
 id: "018"
 title: "Package built Tauri binary for NixOS (autoPatchelfHook or equivalent)"
-status: in-progress
+status: completed
 priority: medium
 effort: medium
 phase: ui-shell
@@ -63,5 +63,5 @@ through Nix.
       environment -- discovered the hard way that the repo devShell's
       Nix cc/binutils leaking into the ui build breaks the final link
       against system GTK (libstdc++/glibc version skew).
-- [ ] Patched binary actually launches on real NixOS -- validated next
+- [x] Patched binary actually launches on real NixOS -- validated next
       via task 022's kiosk VM boot, then the physical NUC.

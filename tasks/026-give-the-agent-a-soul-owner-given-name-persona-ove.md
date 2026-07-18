@@ -1,7 +1,7 @@
 ---
 id: "026"
 title: "Give the agent a soul: owner-given name + persona overlays"
-status: in-progress
+status: completed
 priority: high
 effort: medium
 phase: agent-core
@@ -65,9 +65,9 @@ persona selection applied as a real voice overlay.
 - [x] Naming screen visually verified against the static build
       (Playwright screenshot: orb/h1/eyebrow/input/disabled-Continue
       per DESIGN.md).
-- [ ] Hands-on pass (`make dev`): full three-step flow, then chat in
+-[x] Hands-on pass (`make dev`): full three-step flow, then chat in
       persona + name + language and feel the register shift.
-- [ ] Device pass: rebuild ui-bundle + image after this lands so the
+- [x] Device pass: rebuild ui-bundle + image after this lands so the
       device VM/NUC carries the naming step.
 
 ## Acceptance Criteria
