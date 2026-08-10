@@ -2,6 +2,10 @@
 import { LANGUAGE_OPTIONS } from "~/lib/setupOptions";
 import { setLanguage } from "~/lib/setupStore";
 
+// Setup is a full-screen ceremony, never the two-pane shell -- the
+// device has nothing to show on a shelf until it has been set up.
+definePageMeta({ layout: false });
+
 // The device can't know the user's language yet -- so it greets in all
 // of them, Indonesian first (see DESIGN.md "First-boot greeting").
 const GREETINGS = [

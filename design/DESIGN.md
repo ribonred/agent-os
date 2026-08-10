@@ -86,9 +86,12 @@ onward. Not a flat disc: a layered composition, each layer with one job.
 4. **Ring** -- one thin, precise luminous ring just outside the core.
    The machined, instrument-like counterpoint to the glow: the TARS
    side of the personality, where the glow is the Jarvis side.
-5. **Light pool** (idle/home screen only) -- a soft horizontal ellipse
+5. **Light pool** (setup screens only) -- a soft horizontal ellipse
    of light under the orb, as if it were an object sitting on the
-   counter it actually ships to. Grounds it in physical space.
+   counter it actually ships to. Grounds it in physical space. Setup is
+   where the orb stands alone and gets the full screen; once the device
+   is in use the orb lives at the top of the conversation pane at 56px,
+   beside the owner's things rather than in front of them.
 
 States (idle: slow breathe, listening: faster/brighter, thinking:
 different pattern, speaking: synced) modulate the atmosphere and core
@@ -145,9 +148,12 @@ the other party") stays exactly as it is.
 Naming flows directly into a dedicated conversation where the agent speaks
 first. This is still setup, not the normal chat screen:
 
-- Reuse the conversation surface's 48px orb, bare assistant text, quiet owner
-  messages, streaming behavior, and single bottom input. The product should
-  feel continuous as it moves from being named to getting acquainted.
+- Reuse the conversation surface's bare assistant text, quiet owner messages,
+  streaming behavior, and single bottom input, with the orb at 48px. Setup is
+  full-screen and centered rather than the two-pane shell, so the orb stays at
+  its setup size here; it settles to 56px in the conversation pane once the
+  device is in use. The product should feel continuous as it moves from being
+  named to getting acquainted.
 - No back control and no generic "Ask me anything" empty state. The agent's
   first generated question appears automatically.
 - Keep service discovery invisible unless a check fails or the owner asks.
@@ -155,9 +161,12 @@ first. This is still setup, not the normal chat screen:
 - Profile review happens in the same conversation. The agent presents one
   compact summary; the owner answers naturally with confirmation or a
   correction. Do not turn the five unknowns into cards or a form.
-- Home becomes available only after the confirmed profile is actually saved.
-  The transition should feel like the conversation opening up, not a success
-  ceremony or administrative completion screen.
+- The device becomes usable only after the confirmed profile is actually
+  saved. Setup then gives way to the two-pane shell: the conversation the
+  owner was just having settles into its pane on the left, and their own
+  files appear beside it. The transition should feel like the conversation
+  opening up -- literally, here -- not a success ceremony or an
+  administrative completion screen.
 
 ## The conversation surface
 
@@ -165,8 +174,16 @@ Chat is the product's primary surface -- not a feature screen, the thing
 the device is for. It must read as "talking to the device," never as a
 chat app skin:
 
-- **The orb is the other party.** A small presence orb (48px) sits at the
-  top of the conversation; there is no assistant avatar, name badge, or
+- **A persistent pane, not a page.** Once setup is done the conversation
+  occupies a fixed-width column on the left, beside the file view (below).
+  It is never navigated away from: the owner can look through their
+  things while the device is still speaking, and a reply that started
+  before they moved keeps streaming. The pane may collapse to a narrow
+  rail when someone wants the width, but the orb is never removed from
+  the screen -- a screen with no orb reads as a device that is switched
+  off.
+- **The orb is the other party.** A small presence orb (56px) sits at the
+  top of the conversation pane; there is no assistant avatar, name badge, or
   message bubble on the assistant side. Assistant text renders directly
   on the canvas in `--text-primary`, full measure, like the device is
   speaking into the room.
@@ -179,12 +196,159 @@ chat app skin:
   when done. The orb's state IS the status indicator; nothing textual
   duplicates it.
 - **One input, one action.** A single quiet input bar pinned at the
-  bottom, send on Enter. No toolbar, no attachments yet (ingest comes
-  through its own flow later), no model picker -- routing is the
-  device's decision (constitution.md discloses it only on request).
+  bottom, send on Enter. No toolbar, no attach button, no file picker,
+  no model picker -- routing is the device's decision
+  (constitution.md discloses it only on request).
+- **Context comes from selection, not from attaching.** Touching
+  a file places one quiet `--surface` chip directly
+  above the input naming what was selected, with a single dismiss
+  control. The next message carries it; sending clears it. Never more
+  than one chip at a time.
+
+  This supersedes an earlier "no attachments" rule, and the distinction
+  is the whole point rather than a loophole: there is no picker and no
+  dialog, and nothing can become context that isn't already visible on
+  screen. The owner points at a thing they can see instead of
+  navigating a hierarchy to find it, which is the difference between an
+  affordance a non-technical owner can use and one they cannot. "One
+  input, one action" is intact -- the chip is a statement of what
+  they're looking at, not a second control.
 - **Errors are spoken, loudly.** A failed backend renders as an error
-  line in `--danger` in the conversation flow itself, with the actual
-  message -- never a silent retry, never a toast that vanishes.
+  line in `--danger` in the conversation flow itself -- never a silent
+  retry, never a toast that vanishes.
+
+  This holds on every surface, with the error placed where the failure
+  is: something that went wrong with one file or folder renders on that
+  row or tile; something that broke the whole surface replaces the
+  content area; something the agent hit stays in the conversation. No
+  toasts anywhere, a file surface included -- that is precisely where
+  the reflex to add one is strongest, and a message that vanishes is a
+  message the owner didn't read.
+
+  What's shown is always written for the owner, never the underlying
+  system's own words. "I couldn't read this one" is the message; the
+  raw string from any layer goes to the log, not to the screen.
+  constitution.md forbids surfacing error codes and system state, and
+  a raw error string passed straight through to the UI is exactly that.
+
+## The file view
+
+The other half of the main surface, beside the conversation. It is **a
+file manager**: the owner's real directories, nested to whatever depth
+their disk actually has, showing what is really there. The agentic part
+is not that the files are curated, digested, or re-labelled before the
+owner sees them -- it is that they can point at something here and ask
+the device about it.
+
+An earlier version of this section framed this surface as "shelves" --
+a curated library of what the device had been given, with cleaned-up
+names and no nesting. That was wrong, and wrong in a specific way worth
+recording: it invented a model the product does not have. The owner's
+files are their own, they already have a shape, and a surface that
+paraphrases that shape makes their device *harder* to reason about, not
+easier. Familiarity is the accessibility win here, not abstraction.
+
+The owner has no other way to reach their files. The kiosk session runs
+this shell and nothing else -- no desktop, no terminal, no second file
+manager to fall back on. Every affordance they need must exist here, and
+every one they don't need is weight they carry.
+
+- **Show what is actually there.** Real filenames with their extensions,
+  real sizes, real dates. `price-list-2026.xlsx` is
+  `price-list-2026.xlsx`. Someone should be able to match what they see
+  here against what they'd see anywhere else that names the same file.
+- **Folders and files in one list, folders first, then alphabetical.**
+  What a file manager does. Ordering by name rather than by recency
+  keeps a directory's shape stable as its contents change, so the thing
+  the owner learned the position of stays where they left it.
+  Case-insensitive: names sort the way a person reads them, not the way
+  ASCII orders them.
+- **A folder says what it holds; a file says how big it is.** Enough to
+  decide whether to open something, and nothing more.
+- **No absolute paths.** The breadcrumb names folders from the owner's
+  own files downward -- no leading slash, no home directory, nothing
+  above where they can actually go. The device's own filesystem is not
+  something the owner should have to think about, and there is nowhere
+  above their home for them to navigate to anyway.
+- **Hidden files stay hidden.** Dotfiles are the machine's business.
+- **Colour encodes state, never identity.** Files are never
+  colour-coded by kind: that is an icon's job, and a colour legend is
+  something the owner has to learn. `--accent` marks focus or where the
+  device is pointing; `--danger` marks a genuine failure.
+- **The gestures are the ones people already have.** Single click
+  selects; double click opens a folder; ctrl (or cmd) click adds and
+  removes one; shift click takes the range. These are not chosen for
+  elegance -- they are chosen because someone who has used any computer
+  before already knows them, and inventing a "simpler" scheme here would
+  mean the owner has to learn this device specifically. Familiarity is
+  the accessibility win.
+
+  Selection and focus are shown differently: a selected row is filled
+  with `--accent` at low opacity, the focused row carries a ring. Once
+  more than one row can be picked, "where I am" and "what I chose" are
+  genuinely different questions and must not share one indicator.
+
+  Everything reachable by mouse is reachable by keyboard -- arrows move,
+  shift+arrow extends, Enter opens, Escape clears. The device ships to
+  counters where a mouse may not be the thing at hand.
+
+- **Selection does not survive leaving the folder.** Opening a different
+  directory clears it, and so does a file disappearing from underneath
+  it. A selection that points at something the owner can no longer see
+  is worse than no selection.
+
+- **The list does not render what's inside a file.** Reading a document
+  is what the conversation is for -- asking the device is a better
+  answer than a cramped preview beside a chat pane.
+
+  It also keeps the webview's reach at zero. Every filesystem operation
+  stays behind a small set of named actions in the native layer, which
+  never hands the browser a path or the ability to read a file directly.
+  Paths that arrive from the interface are re-resolved and checked
+  against the owner's home before anything is read. On a device sold to
+  someone who will never audit it, that boundary is worth more than a
+  preview pane.
+
+This surface introduces **no new colour tokens**. Everything above is
+`--surface`, `--surface-raised`, `--text-primary`, `--text-secondary`,
+`--accent`, `--danger`.
+
+## Icons
+
+Kind is communicated by a small line icon at the head of every row: a
+folder for a directory, and for a file, what kind of file it is --
+spreadsheet, document, picture, sound, video, archive, plain text, or a
+neutral mark when the device cannot tell.
+
+These come from an icon set (Lucide), imported one icon at a time so that
+only the handful actually used is bundled. **Nothing is ever fetched at
+runtime** -- the device may never see a network, and a surface that
+degrades without one is not an appliance. That constraint, not the
+choice of set, is the part that matters if this is ever revisited.
+
+An earlier version of this section drew kind as abstract "motifs" of bars
+and blocks instead, to avoid taking on an icon dependency at all. That
+was the wrong trade: hand-drawn shapes cost far more to build and tune
+than the dependency saved, and they read as smudges rather than as
+things. A conventional icon is also *easier* for the owner -- a folder
+that looks like a folder needs no learning, which is the whole point.
+
+What survives from that reasoning, and still holds:
+
+- **Icons orient; the name informs.** They are drawn quietly in
+  `--text-secondary`, never at full contrast, and they sit beside the
+  name rather than competing with it.
+- **Never coloured, never badged.** Colour on this surface means state,
+  not kind. An icon tinted to signal something is a legend the owner has
+  to learn.
+- **One mark per kind the view genuinely distinguishes**, and no more.
+  A larger icon set is a larger vocabulary, and every extra symbol is one
+  more thing to decode.
+- **A directory always shows a folder**, whatever is inside it. What it
+  holds is said by its item count; borrowing one file's icon to stand
+  for a whole directory would misdescribe it. A folder reads a step
+  brighter than the files beside it, because it is the thing you
+  navigate by.
 
 ## Typography
 
@@ -202,11 +366,28 @@ glyphs per locale instead of fighting it.
 Subtle, ambient, meaningful -- not decorative. The core recurring element
 is the AI presence indicator: a soft pulsing glow (using `--accent`) that
 changes rhythm by state (idle: slow breathe, listening: faster/brighter,
-thinking: a different pattern, speaking: synced to output). Svelte's
-built-in transitions (`fade`, `fly`, `scale`) are enough for this --
-no external animation library needed yet. A knowledge-graph visualizer is
-a real future enhancement (explicitly deferred, not scoped here) that
-will need its own motion/interaction spec when it's actually built.
+thinking: a different pattern, speaking: synced to output). CSS
+transitions and keyframes are enough for this -- no external animation
+library needed yet. A knowledge-graph visualizer is a real future
+enhancement (explicitly deferred, not scoped here) that will need its own
+motion/interaction spec when it's actually built.
+
+**The pointing gesture.** When a reply concerns a particular file or
+folder, that row breathes once -- a single `--accent` ring, roughly
+900ms, then nothing. This is the device pointing at what it's talking
+about, standing in for the gesture a person would make, and it is the
+only motion in the file view that isn't an enter or exit transition. It
+never repeats and never persists: a row left permanently highlighted is
+decoration, which is the one thing this system's motion rule forbids.
+
+**Things arrive visibly.** When a file appears in the directory being
+viewed -- the owner copied it in, or asked the device to fetch it -- the
+row enters with the same quiet rise-and-fade used elsewhere, rather than
+being there on the next repaint as if it had always been. Watching the
+device put something down is what makes it read as an assistant doing
+work instead of a folder that changed behind your back.
+
+Every animation here honours `prefers-reduced-motion`.
 
 ## Supporting tooling
 

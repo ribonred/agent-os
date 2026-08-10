@@ -42,5 +42,11 @@ useHead({ title: "agentic-os" });
 </script>
 
 <template>
-  <NuxtPage />
+  <!-- NuxtLayout is what lets a page opt into the two-pane shell. Without
+       it a page's `layout` is ignored entirely and every route renders
+       bare, so setup screens (layout: false) look correct while the shell
+       silently never appears. -->
+  <NuxtLayout>
+    <NuxtPage />
+  </NuxtLayout>
 </template>

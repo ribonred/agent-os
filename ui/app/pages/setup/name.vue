@@ -6,6 +6,8 @@
 import { AGENT_NAME_MAX_LENGTH } from "~/lib/setupOptions";
 import { beginOnboarding } from "~/lib/setupStore";
 
+definePageMeta({ layout: false });
+
 const name = ref("");
 const saving = ref(false);
 

@@ -7,6 +7,8 @@ import {
   setOnboardingQuestionCount,
 } from "~/lib/setupStore";
 
+definePageMeta({ layout: false });
+
 type Entry =
   | { kind: "user"; content: string }
   | { kind: "assistant"; content: string }
@@ -139,7 +141,7 @@ onMounted(async () => {
       v-else
       class="continue"
       to="/"
-      aria-label="Continue to home"
+      aria-label="Continue"
       title="Continue"
     >
       →

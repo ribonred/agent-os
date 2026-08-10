@@ -2,6 +2,8 @@
 import { PERSONA_OPTIONS } from "~/lib/setupOptions";
 import { setPersona } from "~/lib/setupStore";
 
+definePageMeta({ layout: false });
+
 const selecting = ref<string | null>(null);
 
 async function choose(id: (typeof PERSONA_OPTIONS)[number]["id"]) {

@@ -1,5 +1,6 @@
 mod agent;
 mod cloud_key;
+mod shelf;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -72,7 +73,8 @@ pub fn run() {
             cloud_key::cloud_key_delete,
             agent::agent_status,
             agent::agent_chat,
-            agent::agent_onboarding_chat
+            agent::agent_onboarding_chat,
+            shelf::shelf_list
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

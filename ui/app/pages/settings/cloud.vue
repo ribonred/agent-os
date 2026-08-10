@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { invoke } from "@tauri-apps/api/core";
 
+definePageMeta({ layout: false });
+
 // The key itself never comes back from the backend -- only which
 // source is active. See src-tauri/src/cloud_key.rs for the posture:
 // "keyring" = the user's own key; "provisioned" = a key shipped with
