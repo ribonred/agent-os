@@ -20,6 +20,33 @@ fn base_url() -> String {
     std::env::var("AGENTIC_OS_HERMES_URL").unwrap_or_else(|_| "http://127.0.0.1:8642".to_string())
 }
 
+/// The model every session is pinned to, mirroring the gateway's own
+/// configured default.
+///
+/// Sessions MUST be created with an explicit model. A session opened
+/// without one is stamped with the API server's display label for the
+/// default profile -- the literal string "hermes-agent", which is a
+/// profile name, not a model id. The gateway then routes on that label
+/// and the provider rejects every turn ("hermes-agent is not a valid
+/// model ID") while the configured model looks perfectly correct.
+///
+/// Reading it back at runtime is not an option: the server advertises
+/// only that same label on /v1/models, so there is nothing real to
+/// discover. The value below therefore repeats the gateway's own
+/// model.default and must be kept in step with it -- changing the model
+/// means changing both.
+///
+/// The env override is the seam that removes that duplication later:
+/// provisioning can export this variable from the same source that
+/// configures the gateway, leaving the literal here as a fallback
+/// rather than a second definition.
+fn model_id() -> String {
+    std::env::var("AGENTIC_OS_HERMES_MODEL")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "deepseek/deepseek-v4-flash-0731".to_string())
+}
+
 /// Scopes the agent's long-term memory independently of transcript
 /// sessions -- stable across app restarts, so what the device learns
 /// about its owner persists.
@@ -261,10 +288,13 @@ async fn create_session(key: &str) -> Result<String, String> {
     let uri: hyper::Uri = format!("{}/api/sessions", base_url())
         .parse()
         .map_err(|e| format!("bad gateway URL: {e}"))?;
+    let payload = serde_json::json!({ "model": model_id() });
+    let encoded =
+        serde_json::to_vec(&payload).map_err(|e| format!("could not encode session request: {e}"))?;
     let request = hyper::Request::post(uri)
         .header("authorization", format!("Bearer {key}"))
         .header("content-type", "application/json")
-        .body(Full::new(Bytes::from_static(b"{}")))
+        .body(Full::new(Bytes::from(encoded)))
         .map_err(|e| format!("could not build session request: {e}"))?;
 
     let response = http_client()

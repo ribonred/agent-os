@@ -7,8 +7,16 @@ export default defineNuxtConfig({
   telemetry: false,
   ssr: false,
   css: ["~/assets/css/main.css"],
+  // Dev-only. The desktop shell waits for the dev server on
+  // http://localhost:3000, so bind exactly that. Binding "0" (0.0.0.0)
+  // also serves localhost, but Nuxt then prints only "Network:" URLs
+  // and no "Local:" line, hiding the address the shell actually polls
+  // and making a failed handoff look like a mystery. None of this
+  // reaches the device: the packaged app loads pre-built static files
+  // and never starts a dev server.
   devServer: {
-    host: "0",
+    host: "127.0.0.1",
+    port: 3000,
   },
   vite: {
     clearScreen: false,

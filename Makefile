@@ -9,6 +9,9 @@
 REPO       := $(abspath .)
 KEYS_FILE  ?= $(REPO)/cloud-keys.toml
 HERMES_URL ?= http://127.0.0.1:8642
+# Must match devUrl in ui/src-tauri/tauri.conf.json and devServer in
+# ui/nuxt.config.ts -- the shell polls this exact address at startup.
+UI_DEV_URL ?= http://localhost:3000
 
 UI_BUNDLE ?= $(REPO)/ui/src-tauri/target/release/ui
 
@@ -20,6 +23,13 @@ help: ## List available targets
 dev: ## Run the GUI against the local Hermes Agent gateway
 	@curl -fsS -m 2 $(HERMES_URL)/health >/dev/null 2>&1 \
 	  || echo "WARNING: no Hermes gateway answering at $(HERMES_URL) -- chat will fail. Fix with: hermes gateway restart" >&2
+	@cd ui && env -i HOME="$$HOME" USER="$$USER" TERM="$$TERM" \
+	  PATH="$$HOME/.bun/bin:$$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin" \
+	  NUXT_TELEMETRY_DISABLED=1 bun run build >/dev/null 2>&1 \
+	  || echo "WARNING: prebuild failed -- the shell may time out waiting for the dev server" >&2
+	@if curl -fsS -m 2 $(UI_DEV_URL) >/dev/null 2>&1; then \
+	  echo "WARNING: something already serves $(UI_DEV_URL) -- the shell will attach to it, not to a fresh dev server" >&2; \
+	fi
 	$(MAKE) -s gui
 
 gui: ## Run the Tauri app (expects the Hermes gateway; see `make dev`)

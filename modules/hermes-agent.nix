@@ -35,6 +35,13 @@
       # passes this string to the provider verbatim, and OpenRouter 400s
       # on the prefixed form ("not a valid model ID" -- hit live on the
       # first device chat). Shape mirrors a known-good hermes install.
+      #
+      # `default` is duplicated in the UI shell, which must name a model
+      # explicitly when it opens a session -- a session created without
+      # one is stamped with the API server's profile label instead of a
+      # real model id, and every turn then fails at the provider. Keep
+      # the two values in step; see the model helper in the shell's
+      # agent client for the full reasoning.
       model = {
         provider = "openrouter";
         default = "deepseek/deepseek-v4-flash-0731";
