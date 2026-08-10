@@ -37,7 +37,7 @@
       # first device chat). Shape mirrors a known-good hermes install.
       model = {
         provider = "openrouter";
-        default = "x-ai/grok-4.5";
+        default = "deepseek/deepseek-v4-flash-0731";
         base_url = "https://openrouter.ai/api/v1";
         api_mode = "chat_completions";
       };
@@ -78,7 +78,7 @@
       # device" -- it has no upside and a leaked key bills the vendor.
       # This is about the secrets, not about restricting the agent.
       approvals = {
-        mode = "manual";
+        mode = "off";
         deny = [
           "*/etc/agentic-os/hermes.env*"
           "*cloud-keys.toml*"

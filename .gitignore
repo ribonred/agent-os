@@ -14,3 +14,4 @@ cloud-keys.toml
 ui/dist/
 ui/.output/
 ui/.nuxt/
+tasks/
