@@ -9,6 +9,6 @@ when_to_use: >
 when_not_to_use: >
   Free-text notes, documents, or loosely structured knowledge the user is
   feeding in -- that belongs in the knowledge/graph store, not here.
-nix_module: modules/tool-registry/postgres.nix
+install: build/scripts/install-services.sh
 health_check: "pg_isready -h localhost"
 status: enabled_by_default

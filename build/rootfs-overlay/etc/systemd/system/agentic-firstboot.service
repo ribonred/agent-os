@@ -1,0 +1,20 @@
+[Unit]
+Description=Per-unit setup and agent identity pinning
+# Filesystems must be mounted before the root partition can be grown, and
+# the whole point is to finish before anything reads what it writes.
+After=local-fs.target systemd-machine-id-commit.service
+# The agent cannot authenticate against its own gateway without the
+# bearer token this writes, and the display manager should not present a
+# session whose assistant is guaranteed to fail.
+Before=hermes-gateway.service gdm.service
+Wants=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/agentic-firstboot
+RemainAfterExit=yes
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

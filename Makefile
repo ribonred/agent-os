@@ -1,5 +1,6 @@
-# Developer entry points for the dev loop. Device-side behavior is
-# defined entirely by the flake -- nothing here ships.
+# Developer entry points for the dev loop, plus the golden-image build.
+# Nothing in this file ships: the device's behavior is defined by
+# build/packages.txt and the scripts under build/.
 #
 # The GUI rides the local Hermes Agent gateway (HERMES_URL); its bearer
 # token is auto-discovered from ~/.hermes/.env in dev, so no key setup
@@ -15,7 +16,10 @@ UI_DEV_URL ?= http://localhost:3000
 
 UI_BUNDLE ?= $(REPO)/ui/src-tauri/target/release/ui
 
-.PHONY: help dev gui hermes-env test iso iso-provisioned iso-kiosk iso-full host ui-bundle host-kiosk
+ROOTFS ?= $(REPO)/build/rootfs
+IMAGE  ?= $(REPO)/build/agentic-os.img
+
+.PHONY: help dev gui hermes-env test ui-bundle rootfs image golden clean-image
 
 help: ## List available targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -33,9 +37,8 @@ dev: ## Run the GUI against the local Hermes Agent gateway
 	$(MAKE) -s gui
 
 gui: ## Run the Tauri app (expects the Hermes gateway; see `make dev`)
-	# env -i for the same reason as ui-bundle: running make from the repo
-	# root inherits the direnv/Nix devShell, whose cc/binutils break the
-	# ui link against system GTK. Display/session vars pass through so
+	# env -i for the same reason as ui-bundle: a clean, predictable
+	# environment for the toolchain. Display/session vars pass through so
 	# the window, webview, and keyring still work.
 	cd ui && env -i HOME="$$HOME" USER="$$USER" TERM="$$TERM" \
 	  PATH="$$HOME/.bun/bin:$$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin" \
@@ -63,35 +66,30 @@ test: ## All Rust crate tests + UI typecheck
 	cd agent-core/cloud-key && cargo test
 	cd ui && bun run check
 
-iso: ## Build the generic (secret-free) self-installing ISO
-	nix build .#installer-iso --print-out-paths
+rootfs: ## Build the golden rootfs (stage 1 -- needs root and a network)
+	sudo $(REPO)/build/build-rootfs.sh --rootfs $(ROOTFS) --ui $(UI_BUNDLE)
 
-iso-provisioned: ## Build the ISO with KEYS_FILE baked in (see hosts/installer/installer.nix for the costs)
-	@test -f "$(KEYS_FILE)" || { echo "KEYS_FILE not found: $(KEYS_FILE)" >&2; exit 1; }
-	AGENTIC_OS_BAKE_CLOUD_KEYS=$(KEYS_FILE) nix build .#installer-iso --impure --print-out-paths
+image: ## Turn the rootfs into a bootable disk image (stage 2 -- needs root)
+	@test -d "$(ROOTFS)" || { echo "no rootfs at $(ROOTFS) -- run 'make rootfs' first" >&2; exit 1; }
+	sudo $(REPO)/build/make-image.sh --rootfs $(ROOTFS) --out $(IMAGE)
 
-iso-kiosk: ## Build the ISO with the UI baked in, no secrets (needs UI_BUNDLE; see `make ui-bundle`)
-	@test -f "$(UI_BUNDLE)" || { echo "UI_BUNDLE not found: $(UI_BUNDLE) -- run 'make ui-bundle' first" >&2; exit 1; }
-	AGENTIC_OS_UI_BUNDLE=$(UI_BUNDLE) nix build .#installer-iso --impure --print-out-paths
+golden: ui-bundle rootfs image ## Build everything: UI, rootfs, and the flashable image
 
-iso-full: ## Build the complete device image: UI + provisioned cloud key
-	@test -f "$(UI_BUNDLE)" || { echo "UI_BUNDLE not found: $(UI_BUNDLE) -- run 'make ui-bundle' first" >&2; exit 1; }
-	@test -f "$(KEYS_FILE)" || { echo "KEYS_FILE not found: $(KEYS_FILE)" >&2; exit 1; }
-	AGENTIC_OS_UI_BUNDLE=$(UI_BUNDLE) AGENTIC_OS_BAKE_CLOUD_KEYS=$(KEYS_FILE) nix build .#installer-iso --impure --print-out-paths
-
-host: ## Build the full NixOS host closure (pure = headless, no graphical session)
-	nix build .#nixosConfigurations.host.config.system.build.toplevel --print-out-paths
+clean-image: ## Remove the built rootfs and image
+	sudo rm -rf $(ROOTFS) $(IMAGE) $(IMAGE).zst
 
 ui-bundle: ## Build the release Tauri binary with the system toolchain
 	# Clean caches first: a stale bundler cache once produced a build
 	# whose component markup and scoped CSS came from different compiler
 	# generations -- styles matched nothing, layout collapsed on-device.
 	cd ui && rm -rf .nuxt .output dist node_modules/.vite
-	# env -i on purpose: the repo devShell's Nix cc/binutils must not
-	# leak into this build -- mixing them with system GTK libs breaks
-	# the final link. ui/ is built with the system toolchain, always.
+	# env -i on purpose: an inherited toolchain must not leak into this
+	# build -- mixing compilers with the system GTK libs breaks the final
+	# link. ui/ is built with the system toolchain, always, and the
+	# result is copied straight into the image; on a normal FHS distro it
+	# needs no interpreter or RPATH rewriting.
 	# The device overlay makes the window fullscreen/undecorated so the
-	# assistant fills its workspace; dev (`make gui`) keeps a normal window.
+	# assistant fills the screen; dev (`make gui`) keeps a normal window.
 	cd ui && env -i HOME="$$HOME" USER="$$USER" TERM="$$TERM" \
 	  PATH="$$HOME/.bun/bin:$$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin" \
 	  NUXT_TELEMETRY_DISABLED=1 \
@@ -103,7 +101,3 @@ ui-bundle: ## Build the release Tauri binary with the system toolchain
 	if ! grep -rqF "$$hash" ui/dist/_nuxt/*.js; then \
 	  echo "SCOPE HASH MISMATCH: css has $$hash but no JS applies it -- stale-cache build, do not ship" >&2; exit 1; \
 	fi; echo "scope-hash check ok: $$hash"
-
-host-kiosk: ## Build the host closure with the graphical session (needs UI_BUNDLE; see `make ui-bundle`)
-	@test -f "$(UI_BUNDLE)" || { echo "UI_BUNDLE not found: $(UI_BUNDLE) -- run 'make ui-bundle' first" >&2; exit 1; }
-	AGENTIC_OS_UI_BUNDLE=$(UI_BUNDLE) nix build .#nixosConfigurations.host.config.system.build.toplevel --impure --print-out-paths

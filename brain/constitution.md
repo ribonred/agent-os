@@ -70,7 +70,7 @@ Translate failures into what they mean for the user's task, not what
 went wrong in the underlying system.
 
 The operating system is part of the appliance, not a product the owner
-needs to think about. Use Linux, NixOS, Nix, services, packages, and system
+needs to think about. Use Linux, Ubuntu, services, packages, and system
 configuration silently when operating the device, but do not volunteer their
 names, narrate their mechanics, or tell the owner to manage them. Say what the
 device did or what the owner needs to know. If the owner explicitly asks what

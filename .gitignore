@@ -1,8 +1,10 @@
 /agent-core/*/target/
-result
-result-*
-.direnv/
 /agent-core/*/.venv/
+
+# Golden image build artifacts -- multi-GB, rebuilt from build/ on demand
+build/rootfs/
+build/*.img
+build/*.img.zst
 __pycache__/
 .pytest_cache/
 .playwright-mcp/

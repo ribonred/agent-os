@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+#
+# Runs on every boot; the per-unit half runs only once.
+#
+# One image is copied byte-for-byte onto every unit, so anything that must
+# differ between units cannot be baked in and has to be generated here, on
+# the device, the first time it powers on.
+#
+# Split into two parts on purpose:
+#   - once  -- identity: host keys, bearer token, filesystem size
+#   - every -- identity re-pinning: the constitution is declarative and
+#              must survive the agent editing its own soul at runtime
+
+set -euo pipefail
+
+STAMP=/var/lib/agentic-os/.firstboot-done
+ENV_FILE=/etc/agentic-os/hermes.env
+KEYS_FILE=/etc/agentic-os/cloud-keys.toml
+SHARE=/usr/local/share/agentic-os
+HERMES_HOME=/var/lib/hermes
+
+log() { printf 'agentic-firstboot: %s\n' "$*"; }
+
+# ---------------------------------------------------------------------------
+# Every boot: re-pin the agent's identity
+# ---------------------------------------------------------------------------
+# The constitution IS the identity and stays declarative, so the agent's
+# runtime soul-editing never survives a reboot. Name and persona are
+# applied per-turn by the shell instead, which is why overwriting this
+# file does not erase what the owner set up.
+if [ -f "$SHARE/constitution.md" ]; then
+    install -D -m 660 -o hermes -g hermes \
+        "$SHARE/constitution.md" "$HERMES_HOME/.hermes/SOUL.md"
+fi
+
+if [ -d "$SHARE/skills" ]; then
+    for skill_dir in "$SHARE/skills"/*/; do
+        [ -d "$skill_dir" ] || continue
+        name="$(basename "$skill_dir")"
+        install -D -m 660 -o hermes -g hermes \
+            "$skill_dir/SKILL.md" \
+            "$HERMES_HOME/.hermes/skills/$name/SKILL.md"
+    done
+fi
+
+# ---------------------------------------------------------------------------
+# Once per unit
+# ---------------------------------------------------------------------------
+if [ -f "$STAMP" ]; then
+    exit 0
+fi
+
+log "first boot -- generating per-unit identity"
+
+# --- SSH host keys ---------------------------------------------------------
+# Stripped from the image: identical keys across a fleet would let any
+# unit impersonate any other.
+if [ -z "$(ls -A /etc/ssh/ssh_host_* 2>/dev/null)" ]; then
+    log "generating ssh host keys"
+    ssh-keygen -A
+fi
+
+# --- root filesystem -------------------------------------------------------
+# The image is sized for the smallest disk the product ships on, so on
+# anything larger the rest of the disk is unallocated until now.
+root_src="$(findmnt -no SOURCE /)"
+if [ -n "$root_src" ]; then
+    root_disk="$(lsblk -no PKNAME "$root_src" 2>/dev/null | head -n1 || true)"
+    # The partition number, from sysfs rather than an lsblk column: the
+    # column names for this differ between util-linux versions, and
+    # /sys/class/block/<dev>/partition is stable across all of them.
+    root_part="$(cat "/sys/class/block/$(basename "$root_src")/partition" 2>/dev/null || true)"
+    if [ -n "$root_disk" ] && [ -n "$root_part" ]; then
+        log "growing root filesystem"
+        # Both are no-ops when the partition already fills the disk, and
+        # both exit non-zero to say so -- which is not a failure here.
+        growpart "/dev/$root_disk" "$root_part" || \
+            log "partition already full-size"
+        resize2fs "$root_src" || log "filesystem already full-size"
+    else
+        log "could not resolve root partition -- filesystem not grown"
+    fi
+fi
+
+# --- agent credentials -----------------------------------------------------
+# The bearer token is per-unit and mandatory. The cloud key is optional:
+# an image with no vendor key is a normal image, and the owner supplies
+# their own through the UI.
+#
+# These were once written together, which meant a non-provisioned image
+# shipped no env file at all and the agent could not authenticate against
+# its own gateway. Written unconditionally now.
+or_key=""
+if [ -f "$KEYS_FILE" ]; then
+    or_key="$(sed -n 's/^api_key *= *"\(.*\)"/\1/p' "$KEYS_FILE" | head -n1)"
+    if [ -z "$or_key" ]; then
+        log "WARNING: could not parse api_key from $KEYS_FILE"
+    else
+        log "using vendor-provisioned cloud key"
+    fi
+else
+    log "no vendor cloud key; the owner supplies one through the interface"
+fi
+
+install -D -m 600 -o root -g root /dev/null "$ENV_FILE"
+{
+    echo "OPENROUTER_API_KEY=$or_key"
+    echo "API_SERVER_KEY=$(head -c 32 /dev/urandom | sha256sum | cut -c1-48)"
+} > "$ENV_FILE"
+
+# The shell reads this file to find its bearer token, and it runs as the
+# owner, not as root.
+chgrp users "$ENV_FILE"
+chmod 640 "$ENV_FILE"
+
+# --- machine-id ------------------------------------------------------------
+# systemd regenerates this itself from the empty file left in the image;
+# checked rather than assumed, because a fleet sharing one machine-id
+# breaks anything keyed on it.
+if [ ! -s /etc/machine-id ]; then
+    systemd-machine-id-setup
+fi
+
+mkdir -p "$(dirname "$STAMP")"
+date -Iseconds > "$STAMP"
+log "per-unit setup complete"

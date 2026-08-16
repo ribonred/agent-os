@@ -1,0 +1,20 @@
+name: llama-cpp
+description: >
+  Local inference engine that serves a single GGUF model file over an
+  OpenAI-compatible API. No model registry and no daemon to manage --
+  it serves whatever file it is pointed at.
+when_to_use: >
+  A request should stay on the device and the owner has supplied or
+  chosen a single model file. Also the fallback when the fuller local
+  runtime is unavailable or the device is too small to justify it.
+when_not_to_use: >
+  Swapping between several models, or pulling one by name from a
+  library -- that is the other local runtime's job. And do not assume
+  the loaded model is capable enough for the task: a small local cut
+  answering badly is worse than routing the request to a cloud model.
+install: build/scripts/install-inference.sh
+health_check: "curl -sf http://127.0.0.1:8080/health"
+# The binary ships on every unit, but the service only starts once a
+# model file exists at /var/lib/agentic-os/models/active.gguf. A server
+# with nothing to serve would fail on every boot in the owner's face.
+status: installed_not_enabled

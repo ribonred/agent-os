@@ -43,7 +43,7 @@ pub fn classify_vendor(vendor_id: &str) -> GpuVendor {
 // "version" file, even with the GPU actively in use.
 //
 // This is not a bug to fix -- the real deployment target (NUC, DGX Spark)
-// runs bare-metal NixOS, where /sys/class/drm is the correct mechanism.
+// runs bare-metal Linux, where /sys/class/drm is the correct mechanism.
 // Adding a WSL-specific fallback would only serve this sandbox. Still
 // must be checked against the actual NUC before this result is trusted
 // for a routing decision.

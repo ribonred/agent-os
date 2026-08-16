@@ -10,6 +10,6 @@ when_to_use: >
 when_not_to_use: >
   Anything that needs to survive a factory reset or be queryable later --
   that belongs in postgres or the knowledge/graph store.
-nix_module: modules/tool-registry/redis.nix
+install: build/scripts/install-services.sh
 health_check: "redis-cli -h 127.0.0.1 ping"
 status: enabled_by_default
