@@ -52,7 +52,24 @@ fn model_id() -> String {
 /// about its owner persists.
 const MEMORY_SCOPE: &str = "agentic-os:device:main";
 
-const ONBOARDING_PROTOCOL: &str = "You are guiding the device's first conversation with its owner. Load the device-services skill and silently run its live PostgreSQL and Redis checks at the start; save only successful checks to the memory target. Learn exactly these five areas: the owner's role and context, concrete needs, vocabulary and important entities, boundaries and sensitivities, and communication preference. Ask one clear question at a time, adapting only from answers already given. Never infer or save an unconfirmed profile fact. After at least five discovery questions, summarize all five areas in plain language and ask for explicit confirmation. At fifteen discovery questions, stop asking new discovery questions and summarize even if some areas remain unresolved. Corrections update the summary and require confirmation again. Only after explicit acceptance, make one atomic memory tool batch with target user containing a compact profile covering all five areas. Do not claim setup is complete unless that tool call succeeds. Do not discuss operating-system or service internals unless the owner asks.";
+// Prompt text lives in brain/ as markdown and is baked in at build
+// time, not written inline here. Prose that shapes how the device talks
+// to its owner belongs where it can be read and revised as prose --
+// beside the constitution and the onboarding spec it has to agree with
+// -- rather than as a wall of string literal in a source file, where
+// nobody reviewing behaviour would think to look.
+//
+// include_str! resolves relative to this file and is checked at compile
+// time, so a missing or moved prompt is a build error rather than a
+// device that ships with an empty system message.
+const ONBOARDING_PROTOCOL: &str = include_str!("../../../brain/onboarding-protocol.md");
+
+/// The opening turn: the shell speaks first so the owner never faces an
+/// empty prompt.
+const ONBOARDING_START: &str = include_str!("../../../brain/onboarding-start.md");
+
+/// Picking the conversation back up after a restart mid-setup.
+const ONBOARDING_RESUME: &str = include_str!("../../../brain/onboarding-resume.md");
 
 // ---------------------------------------------------------------------
 // The soul overlay: the owner's setup choices (name, persona, language)
@@ -174,7 +191,7 @@ fn onboarding_overlay(app: &tauri::AppHandle, question_count: u8) -> String {
     let progress = format!(
         "The shell has counted {question_count} discovery questions so far. Treat this count as authoritative."
     );
-    [setup, ONBOARDING_PROTOCOL.to_string(), progress]
+    [setup, ONBOARDING_PROTOCOL.trim().to_string(), progress]
         .into_iter()
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
@@ -535,12 +552,26 @@ async fn stream_chat_turn(
 #[tauri::command]
 pub async fn agent_chat(
     input: String,
+    context_paths: Option<Vec<String>>,
     app: tauri::AppHandle,
     session: tauri::State<'_, AgentSession>,
     on_event: Channel<serde_json::Value>,
 ) -> Result<(), String> {
     let key = api_key()?;
     let overlay = overlay_from_store(&app);
+
+    // What the owner had selected when they pressed send, said in plain
+    // language. Prepended to the turn rather than folded into the system
+    // overlay: it is context for this one question, not a standing fact
+    // about the device.
+    let input = match context_paths
+        .as_deref()
+        .and_then(crate::shelf::context_sentence)
+    {
+        Some(context) => format!("{context}\n\n{input}"),
+        None => input,
+    };
+
     let mut session_id = session.chat.lock().await;
     stream_chat_turn(input, overlay, &key, &mut session_id, &on_event).await?;
     Ok(())
@@ -565,9 +596,9 @@ pub async fn agent_onboarding_chat(
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| {
             if continuing {
-                "Continue onboarding from our existing conversation. Briefly reconnect to the last confirmed context and ask the next needed question.".to_string()
+                ONBOARDING_RESUME.trim().to_string()
             } else {
-                "Begin onboarding now. Introduce yourself by the owner-given name and ask the first discovery question.".to_string()
+                ONBOARDING_START.trim().to_string()
             }
         });
     let id = match stream_chat_turn(input, Some(overlay), &key, &mut session_id, &on_event).await {
@@ -840,3 +871,22 @@ mod tests {
         std::fs::remove_file(&path).unwrap();
     }
 }
+
+#[cfg(test)]
+mod prompt_tests {
+    use super::*;
+
+    #[test]
+    fn onboarding_prompts_are_baked_in_and_say_one_question() {
+        // A wrong include_str! path is a build error, but an empty or
+        // truncated file is not -- check the text actually arrived.
+        assert!(ONBOARDING_PROTOCOL.len() > 500, "protocol looks empty");
+        assert!(ONBOARDING_START.contains("One question only"));
+        assert!(ONBOARDING_RESUME.contains("One question only"));
+
+        // The two behaviours these prompts exist to enforce.
+        assert!(ONBOARDING_PROTOCOL.contains("one question per reply"));
+        assert!(ONBOARDING_PROTOCOL.contains("yes or no"));
+    }
+}
+

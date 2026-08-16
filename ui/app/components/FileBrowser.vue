@@ -12,12 +12,40 @@ const current = computed(() => path);
 const { listing, loading, error, load } = useBrowser(current);
 const entries = computed(() => listing.value?.entries ?? []);
 
-const { selected, focused, focusedEntry, clear, handleClick, moveFocus } =
-  useSelection(entries);
+const {
+  selected,
+  selectedEntries,
+  focused,
+  focusedEntry,
+  clear,
+  handleClick,
+  moveFocus,
+} = useSelection(entries);
+
+// What is selected is what the conversation will ask about, so the two
+// stay in step rather than needing a separate "use this" gesture.
+const context = useContext();
+watch(selectedEntries, (list) => context.set(list), { deep: true });
+
+// Dismissing something from the chip has to deselect the row too, or the
+// file view would keep showing a row as picked after the owner said they
+// didn't mean it. The chip is the authority in this direction.
+watch(
+  context.paths,
+  (paths) => {
+    if (paths.length === selected.value.size) return;
+    const kept = new Set(paths.filter((p) => selected.value.has(p)));
+    if (kept.size !== selected.value.size) selected.value = kept;
+  },
+  { deep: true },
+);
 
 // A new directory is a fresh start: carrying a selection across a
 // navigation would leave rows picked that the owner can no longer see.
-watch(current, clear);
+watch(current, () => {
+  clear();
+  context.clear();
+});
 
 // The agent may have put something down, moved something, or downloaded
 // a file during its turn -- re-read when it finishes rather than leaving

@@ -1,5 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { waitForAgentReady } from "~/lib/agentStatus";
+import { agentErrorMessage, streamErrorMessage } from "~/lib/agentErrors";
 
 // The conversation's state and streaming, owned by the shell rather than
 // by a page. The pane is mounted once for the life of the shell, so a
@@ -49,13 +50,22 @@ export function useConversation() {
       await waitForAgentReady();
       ready.value = true;
     } catch (error) {
-      daemonError.value = String(error);
+      daemonError.value = agentErrorMessage("chat", error);
     }
   }
 
   async function send() {
     const content = input.value.trim();
     if (!content || busy.value) return;
+
+    // Whatever was selected when they pressed send. Captured now and
+    // cleared immediately: the turn is about what they were looking at
+    // then, and leaving the chip up would suggest it applies to the next
+    // question too.
+    const { paths, clear: clearContext } = useContext();
+    const contextPaths = [...paths.value];
+    clearContext();
+
     input.value = "";
     busy.value = true;
     streaming.value = false;
@@ -74,13 +84,22 @@ export function useConversation() {
         streaming.value = true;
         if (reply.kind === "assistant") reply.content += event.content;
       } else if (event.type === "error") {
-        entries.value[replyIndex] = { kind: "error", content: event.message };
+        entries.value[replyIndex] = {
+          kind: "error",
+          content: streamErrorMessage(event.message),
+        };
       }
       // "done" is bookkeeping only -- nothing to show.
     };
 
     try {
-      await invoke("agent_chat", { input: content, onEvent });
+      await invoke("agent_chat", {
+        input: content,
+        // The native layer resolves these into names and folders; a path
+        // never reaches the model, and never comes back out in a reply.
+        contextPaths: contextPaths.length > 0 ? contextPaths : null,
+        onEvent,
+      });
       // An empty reply with no error event means the stream never
       // produced content -- say so rather than leaving a blank line.
       const reply = entries.value[replyIndex];
@@ -91,7 +110,10 @@ export function useConversation() {
         };
       }
     } catch (error) {
-      entries.value[replyIndex] = { kind: "error", content: String(error) };
+      entries.value[replyIndex] = {
+        kind: "error",
+        content: agentErrorMessage("chat", error),
+      };
     } finally {
       busy.value = false;
       streaming.value = false;

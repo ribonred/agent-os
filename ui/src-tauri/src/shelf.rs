@@ -184,6 +184,49 @@ fn crumbs_for(relative: &str) -> Vec<Crumb> {
     crumbs
 }
 
+/// Turn the owner's selection into a sentence for the agent.
+///
+/// This is the one place a path becomes language. The interface sends
+/// paths relative to home; what reaches the model is names and the
+/// folder they sit in, because constitution.md forbids surfacing paths
+/// to the owner and a path in the model's context reliably comes back
+/// out in a reply. The agent has its own tools for reading a file if it
+/// needs the contents -- this only tells it *which* thing is meant.
+///
+/// Paths that no longer resolve are dropped rather than guessed at: a
+/// file deleted between selecting and sending should not become a
+/// confident claim about something that isn't there.
+pub fn context_sentence(paths: &[String]) -> Option<String> {
+    let described: Vec<String> = paths
+        .iter()
+        .filter(|p| resolve(p).is_ok())
+        .filter_map(|p| {
+            let path = Path::new(p);
+            let name = path.file_name()?.to_str()?;
+            match path.parent().and_then(|d| d.to_str()).unwrap_or("") {
+                // Directly in the owner's home -- naming a folder here
+                // would mean naming the home directory, which is exactly
+                // the machine detail that stays hidden.
+                "" => Some(format!("\"{name}\"")),
+                folder => Some(format!("\"{name}\" in {folder}")),
+            }
+        })
+        .collect();
+
+    match described.len() {
+        0 => None,
+        1 => Some(format!(
+            "The owner is asking about {}.",
+            described[0]
+        )),
+        _ => {
+            let last = described.last().cloned().unwrap_or_default();
+            let head = described[..described.len() - 1].join(", ");
+            Some(format!("The owner is asking about {head} and {last}."))
+        }
+    }
+}
+
 /// List one directory: folders and files together, the way a file
 /// manager shows them. `path` is relative to home; empty means home.
 #[tauri::command]
@@ -303,6 +346,63 @@ mod tests {
         }
         assert_eq!(listing.path, "");
         assert!(listing.crumbs.is_empty());
+    }
+
+    #[test]
+    fn context_names_the_thing_and_its_folder_never_a_path() {
+        // Uses whatever really exists, so the resolve() filter is
+        // exercised rather than bypassed.
+        let home = shelf_list(String::new()).expect("home should list");
+        let Some(entry) = home.entries.first() else {
+            return;
+        };
+
+        let sentence = context_sentence(&[entry.path.clone()]).expect("a sentence");
+        assert!(sentence.contains(&entry.name));
+        // Nothing that identifies the machine may appear.
+        assert!(!sentence.contains('/'), "a path leaked: {sentence}");
+        assert!(!sentence.contains("home"), "the home dir leaked: {sentence}");
+    }
+
+    #[test]
+    fn context_says_the_folder_for_something_nested() {
+        let home = shelf_list(String::new()).expect("home should list");
+        let Some(dir) = home.entries.iter().find(|e| e.is_dir && e.count > 0) else {
+            return;
+        };
+        let inner = shelf_list(dir.path.clone()).expect("should list");
+        let Some(child) = inner.entries.first() else {
+            return;
+        };
+
+        let sentence = context_sentence(&[child.path.clone()]).expect("a sentence");
+        assert!(sentence.contains(&child.name));
+        assert!(
+            sentence.contains(&dir.name),
+            "should name the containing folder: {sentence}"
+        );
+    }
+
+    #[test]
+    fn context_drops_anything_that_no_longer_exists() {
+        // A file deleted between selecting and sending must not become a
+        // confident claim about something that isn't there.
+        assert_eq!(context_sentence(&["not-a-real-file.txt".to_string()]), None);
+        assert_eq!(context_sentence(&[]), None);
+        // And a traversal attempt resolves to nothing, so it says nothing.
+        assert_eq!(context_sentence(&["../../etc/passwd".to_string()]), None);
+    }
+
+    #[test]
+    fn context_reads_as_a_list_when_several_are_selected() {
+        let home = shelf_list(String::new()).expect("home should list");
+        if home.entries.len() < 2 {
+            return;
+        }
+        let paths: Vec<String> = home.entries.iter().take(2).map(|e| e.path.clone()).collect();
+        let sentence = context_sentence(&paths).expect("a sentence");
+        assert!(sentence.contains(" and "), "should join naturally: {sentence}");
+        assert!(sentence.ends_with('.'));
     }
 
     #[test]

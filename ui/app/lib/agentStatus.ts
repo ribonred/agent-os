@@ -20,7 +20,9 @@ export async function waitForAgentReady(): Promise<void> {
       await delay(READY_INTERVAL_MS);
     }
   }
-  throw new Error(
-    `The agent gateway did not become ready within 60 seconds: ${String(lastError)}`,
-  );
+  // Rethrow the underlying failure rather than wrapping it in a sentence
+  // of our own: the caller translates errors for the owner, and a
+  // hand-written wrapper here would either leak the machine's vocabulary
+  // ("gateway", "60 seconds") or hide the detail the log needs.
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }

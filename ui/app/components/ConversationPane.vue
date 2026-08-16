@@ -14,6 +14,11 @@ const { entries, input, busy, daemonError, orbState, connect, send } =
   useConversation();
 const scroller = ref<HTMLElement | null>(null);
 
+// The placeholder says what pressing Enter will do, so a selected file
+// doesn't sit there ambiguously beside a generic invitation.
+const { items: contextItems } = useContext();
+const hasContext = computed(() => contextItems.value.length > 0);
+
 onMounted(connect);
 
 async function autoscroll() {
@@ -71,11 +76,13 @@ async function onSubmit() {
         </template>
       </section>
 
+      <ContextChip />
+
       <form @submit.prevent="onSubmit">
         <input
           v-model="input"
           type="text"
-          placeholder="Say something…"
+          :placeholder="hasContext ? 'Ask about this…' : 'Say something…'"
           :disabled="busy || daemonError !== null"
           autocomplete="off"
         />

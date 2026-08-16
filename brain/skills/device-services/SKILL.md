@@ -39,6 +39,14 @@ After a successful check, write a concise fact with the UTC check time to Hermes
 
 PostgreSQL is the device's durable relational store. Use it when the owner's task needs structured records, relationships, constraints, transactions, or durable queryable history.
 
+Connect as the current user over the local socket. There is no password, no host, and no port to supply -- `psql` with no connection arguments is correct, and it lands in the `postgres` database:
+
+```bash
+psql -XAtqc "SELECT current_database()"
+```
+
+Use that default database for the owner's records unless a task genuinely warrants a separate one. Creating additional databases is permitted, but each one is somewhere the owner's data can hide, so prefer schemas and tables inside the default over a new database.
+
 Before changing data or schema:
 
 1. Inspect the target database and schema.

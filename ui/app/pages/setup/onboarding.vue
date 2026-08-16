@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { waitForAgentReady } from "~/lib/agentStatus";
+import { agentErrorMessage } from "~/lib/agentErrors";
 import {
   completeOnboarding,
   getOnboardingQuestionCount,
@@ -57,7 +58,10 @@ async function runTurn(content?: string) {
       if (reply.kind === "assistant") reply.content += event.content;
       autoscroll();
     } else if (event.type === "error") {
-      entries.value[replyIndex] = { kind: "error", content: event.message };
+      entries.value[replyIndex] = {
+        kind: "error",
+        content: agentErrorMessage("setup", event.message),
+      };
       autoscroll();
     }
   };
@@ -84,7 +88,10 @@ async function runTurn(content?: string) {
       await setOnboardingQuestionCount(questionCount.value);
     }
   } catch (error) {
-    entries.value[replyIndex] = { kind: "error", content: String(error) };
+    entries.value[replyIndex] = {
+      kind: "error",
+      content: agentErrorMessage("setup", error),
+    };
   } finally {
     busy.value = false;
     streaming.value = false;
@@ -105,7 +112,7 @@ onMounted(async () => {
     questionCount.value = await getOnboardingQuestionCount();
     await runTurn();
   } catch (error) {
-    daemonError.value = String(error);
+    daemonError.value = agentErrorMessage("setup", error);
   }
 });
 </script>

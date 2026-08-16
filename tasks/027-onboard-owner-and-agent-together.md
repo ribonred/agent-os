@@ -6,7 +6,7 @@ priority: high
 effort: large
 type: feature
 phase: agent-core
-dependencies: ["026"]
+dependencies: []
 tags: [onboarding, hermes-agent, memory, postgres, redis, ui]
 created_at: 2026-07-19
 context:

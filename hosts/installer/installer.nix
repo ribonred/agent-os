@@ -1,57 +1,46 @@
 { pkgs, lib, modulesPath, hostSystem, ... }:
 
 let
-  # Optional: bake a vendor cloud-key file into the image so a freshly
-  # imaged unit comes up with cloud access already working:
+  # Optional: bake a vendor cloud key so an imaged unit has cloud access
+  # immediately.
   #
   #   AGENTIC_OS_BAKE_CLOUD_KEYS=/abs/path/cloud-keys.toml \
   #     nix build .#installer-iso --impure
   #
-  # Understand the costs before using it: the key becomes part of the ISO
-  # file AND of the build machine's world-readable Nix store, and every
-  # unit imaged from that stick shares the same key. Acceptable for bench
-  # provisioning and small batches; customer-scale production should
-  # instead inject per-unit keys as a separate factory step after imaging.
-  # A pure build (no env var, no --impure) produces a generic, secret-free
-  # image -- that stays the default. The provisioned flavor gets a
-  # distinct ISO name so the two can never be confused on a shelf.
+  # Costs: the key lands in the ISO and in the build machine's
+  # world-readable store, and every unit from that stick shares it. Fine
+  # for bench and small batches; production should inject per-unit keys
+  # as a factory step. A pure build produces a secret-free image and
+  # stays the default.
   bakedKeyFile = builtins.getEnv "AGENTIC_OS_BAKE_CLOUD_KEYS";
   bakeKeys = bakedKeyFile != "";
 in
 
-# Self-installing USB image: boot it on a factory-fresh unit and it wipes
-# the internal disk, installs the full agentic-os system, and powers off.
-# No keyboard, no network, no per-unit steps -- one image provisions any
-# number of identical units.
-#
-# The complete host system closure is baked into the ISO
-# (isoImage.storeContents), so the install is fully offline: it copies
-# from the stick's own store instead of downloading anything.
+# Self-installing USB image: boots, wipes the internal disk, installs
+# agentic-os, powers off. No keyboard, no network, no per-unit steps.
+# The whole host closure is baked in (isoImage.storeContents), so the
+# install is fully offline.
 #
 # Build: nix build .#installer-iso
 # Flash: dd (or Rufus in dd mode) to USB, boot the target with UEFI on.
 #
-# THIS IMAGE DESTROYS THE TARGET'S INTERNAL DISK ON BOOT (after a 15s
-# countdown on the console). It is a provisioning tool, not a live/rescue
-# system -- never hand it to a customer.
+# THIS DESTROYS THE TARGET'S INTERNAL DISK ON BOOT after a 15s console
+# countdown. A provisioning tool, not a rescue system -- never hand it
+# to a customer.
 
 {
   imports = [ "${modulesPath}/installer/cd-dvd/installation-cd-minimal.nix" ];
 
   isoImage.storeContents = [ hostSystem ];
 
-  # Provisioned flavor: the key file rides at the ISO root (the live
-  # system mounts the boot medium at /iso), outside the Nix store of the
-  # installed system -- the install script places it with proper
-  # ownership/mode where the UI shell's fallback lookup expects it.
+  # Rides at the ISO root (mounted at /iso), outside the installed
+  # system's store; the script below places it with the right mode.
   isoImage.contents = lib.optional bakeKeys {
     source = /. + bakedKeyFile;
     target = "/cloud-keys.toml";
   };
-  # image.baseName, not image.fileName: the iso builder constructs its
-  # output name from baseName directly and never reads fileName --
-  # verified in the pinned nixpkgs source (iso-image.nix), after the
-  # fileName override eval'd fine but the built artifact ignored it.
+  # baseName, not fileName: the iso builder never reads fileName --
+  # the override eval'd fine and the artifact ignored it.
   image.baseName = lib.mkIf bakeKeys (lib.mkForce "agentic-os-provisioned-installer");
 
   systemd.services.agentic-install = {
@@ -69,25 +58,21 @@ in
     ];
     serviceConfig = {
       Type = "oneshot";
-      # Progress and the abort countdown must be visible on the machine's
-      # own screen -- at the factory there is no journal reader attached.
+      # Visible on the machine's own screen -- no journal reader at the
+      # factory.
       StandardOutput = "journal+console";
       StandardError = "journal+console";
     };
     script = ''
       set -euo pipefail
 
-      # A failed install must be unmissable on the machine's own screen:
-      # the disk is already wiped at that point, and a silent exit leaves
-      # a machine that "installed fine" until its first boot finds no
-      # bootloader. Stay up so the message and journal remain readable.
+      # The disk is already wiped by the time anything fails, so a
+      # silent exit leaves a machine that looks installed until its
+      # first boot finds no bootloader.
       trap 'echo ""; echo "=============================================================="; echo "  INSTALL FAILED (line $LINENO). This machine has NO bootloader."; echo "  Check: journalctl -u agentic-install"; echo "  Fix the cause and boot this installer again."; echo "=============================================================="' ERR
 
-      # Target = the internal disk. NVMe is the expected case for the
-      # mini-PC tier; SATA is the fallback. The boot USB itself shows up
-      # as /dev/sd* too, but only after the NVMe check fails -- if a SATA
-      # variant of the SKU ever exists, this needs to exclude removable
-      # devices before shipping to a factory that images over USB.
+      # NVMe expected, SATA fallback. The boot USB is /dev/sd* too, so
+      # the removable check matters if a SATA SKU ever exists.
       if [ -b /dev/nvme0n1 ]; then
         disk=/dev/nvme0n1 p1=/dev/nvme0n1p1 p2=/dev/nvme0n1p2
       elif [ -b /dev/sda ] && [ "$(cat /sys/block/sda/removable)" = "0" ]; then
@@ -114,10 +99,8 @@ in
         mkpart root ext4 512MB 100%
       udevadm settle
 
-      # udevadm settle alone is not enough on slower NVMe emulations
-      # (seen on VMware): the partition device nodes can lag behind
-      # parted, and mkfs on a not-yet-existing node aborts the install
-      # after the disk is already wiped. Wait for the nodes explicitly.
+      # settle alone isn't enough on slow NVMe emulation (VMware): nodes
+      # lag parted, and mkfs on a missing node aborts a wiped disk.
       for _ in $(seq 30); do
         [ -b "$p1" ] && [ -b "$p2" ] && break
         sleep 1
@@ -135,9 +118,8 @@ in
       mkdir -p /mnt/boot
       mount "$p1" /mnt/boot
 
-      # The closure is already on the stick -- this copies it to the disk
-      # and installs the bootloader, no network involved. --no-root-passwd
-      # because user auth is declared in the system config itself.
+      # Copies from the stick, no network. --no-root-passwd because user
+      # auth is declared in the system config.
       echo ""
       echo "Copying the system to disk. This takes several minutes and"
       echo "prints little progress -- it is NOT stuck. Do not power off."
@@ -145,27 +127,30 @@ in
       nixos-install --system ${hostSystem} --no-root-passwd
       echo "System copy + bootloader done."
 
-      # Provisioned flavor only: place the vendor cloud-key file where the
-      # UI shell's fallback lookup expects it, with the ownership/mode the
-      # shell's permission check wants (root-owned, 0600).
+      # The cloud key is optional; the bearer token is not. Written
+      # together once, which meant non-provisioned images shipped no
+      # hermes.env and the agent could not authenticate against its own
+      # gateway. An image with no cloud key is a normal image.
+      or_key=""
       if [ -f /iso/cloud-keys.toml ]; then
         echo "Installing vendor-provisioned cloud keys."
         install -D -m 600 -o root -g root /iso/cloud-keys.toml /mnt/etc/agentic-os/cloud-keys.toml
 
-        # Same key rendered in Hermes Agent's .env format (see
-        # modules/hermes-agent.nix), plus the agent API server's bearer
-        # token -- generated here, per unit, so no two devices share it
-        # the way they share the vendor cloud key.
         or_key="$(sed -n 's/^api_key *= *"\(.*\)"/\1/p' /iso/cloud-keys.toml | head -n1)"
         if [ -z "$or_key" ]; then
           echo "WARNING: could not parse api_key from cloud-keys.toml; hermes.env gets no cloud key" >&2
         fi
-        install -D -m 600 -o root -g root /dev/null /mnt/etc/agentic-os/hermes.env
-        {
-          echo "OPENROUTER_API_KEY=$or_key"
-          echo "API_SERVER_KEY=$(head -c 32 /dev/urandom | sha256sum | cut -c1-48)"
-        } > /mnt/etc/agentic-os/hermes.env
+      else
+        echo "No vendor cloud key baked in; the owner supplies one through the UI."
       fi
+
+      # Per-unit token, always. OPENROUTER_API_KEY stays empty when
+      # nothing was baked -- the owner's keyring key takes precedence.
+      install -D -m 600 -o root -g root /dev/null /mnt/etc/agentic-os/hermes.env
+      {
+        echo "OPENROUTER_API_KEY=$or_key"
+        echo "API_SERVER_KEY=$(head -c 32 /dev/urandom | sha256sum | cut -c1-48)"
+      } > /mnt/etc/agentic-os/hermes.env
 
       echo ""
       echo "=============================================================="

@@ -199,11 +199,21 @@ chat app skin:
   bottom, send on Enter. No toolbar, no attach button, no file picker,
   no model picker -- routing is the device's decision
   (constitution.md discloses it only on request).
-- **Context comes from selection, not from attaching.** Touching
-  a file places one quiet `--surface` chip directly
-  above the input naming what was selected, with a single dismiss
-  control. The next message carries it; sending clears it. Never more
-  than one chip at a time.
+- **Context comes from selection, not from attaching.** Selecting a file
+  places one quiet `--surface` chip directly above the input naming what
+  was selected, with a single dismiss control. The next message carries
+  it; sending clears it, because the question was about what they were
+  looking at then and a chip left standing would suggest otherwise.
+
+  Always exactly one chip. Selecting several collapses to a count rather
+  than stacking -- a column of chips would push the conversation off
+  screen, and the owner can already see their whole selection on the
+  other side of the window. Dismissing the chip deselects those rows
+  too: two views of one selection must never disagree.
+
+  What reaches the assistant is names and the folder they sit in, never
+  a path. A path in the model's context reliably comes back out in a
+  reply, and constitution.md forbids showing the owner one.
 
   This supersedes an earlier "no attachments" rule, and the distinction
   is the whole point rather than a loophole: there is no picker and no

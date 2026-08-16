@@ -25,5 +25,14 @@ export default defineNuxtConfig({
       strictPort: true,
     },
   },
-  ignore: ["**/src-tauri/**"],
+  // Test files run under `bun test`, which supplies its own globals and
+  // module types. Nuxt's app typecheck knows nothing about those, so
+  // leaving them in scope reports a phantom missing-module error on a
+  // file that is not part of the shipped app anyway.
+  ignore: ["**/src-tauri/**", "**/*.test.ts"],
+  typescript: {
+    tsConfig: {
+      exclude: ["../app/**/*.test.ts"],
+    },
+  },
 });

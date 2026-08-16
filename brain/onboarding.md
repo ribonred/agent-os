@@ -60,7 +60,18 @@ fabricate, etc.). A legacy persona, when present, only shifts register.
 
 The canonical overlay texts live here; the shell
 (`ui/src-tauri/src/agent.rs`) mirrors them verbatim, same contract as
-the option lists above. Change this file first, then the mirror.
+the option lists above. Change this file first, then the mirror. These
+three stay in the shell because each is a template with a runtime value
+substituted into it — the owner's chosen name, their language — rather
+than fixed prose.
+
+The onboarding protocol itself is not mirrored: it is fixed prose, so it
+lives in `brain/onboarding-protocol.md` and is baked into the shell at
+build time. The opening and resume turns are likewise
+`brain/onboarding-start.md` and `brain/onboarding-resume.md`. Edit those
+files directly — there is no copy in the source to keep in step, and a
+missing one is a build error rather than a device that ships with an
+empty system message.
 
 - **Identity** (only when a name is set): "Your owner has named you
   {name}. That is your name — use it naturally when you introduce
@@ -100,6 +111,21 @@ differently worded questions for the same underlying unknown. Ask about
 how many staff and what do you use now") are where small models lose
 track of which part of the answer maps to which fact — don't do it, even
 if it feels slower.
+
+**One question per reply, and the reply ends at the question mark.** Not
+one unknown per reply — one *question*. A reply that asks something, then
+adds "and do you also…", gets a single answer and silently loses the
+rest. This is the failure that actually shows up in practice: the model
+keeps going after the question because it has more it wants to know.
+Stop and wait for the answer.
+
+**Prefer questions the owner can answer with yes or no.** Someone setting
+up a device for the first time should not have to compose a sentence to
+get past the first screen. "Do you handle appointments for other people?"
+gets further than "What is your role?" — and a yes or a no is a real
+answer, to be taken and built on rather than re-asked in other words. Use
+an open question only where a yes/no genuinely cannot get there: what the
+owner calls their customers has no yes/no form.
 
 ## The agent learns its device at the same time
 
@@ -141,11 +167,12 @@ answer is vague:
 
 - Ask a targeted follow-up on that same unknown before moving to the next
   one. Don't paper over a vague answer to keep the question count down.
-- Offer concrete examples or a short set of options rather than repeating
-  an open question. "Do you mainly need help with appointments,
-  inventory, or both?" gets further than "can you tell me more?" — a
+- Offer concrete examples rather than repeating an open question. "Is it
+  mostly appointments?" gets further than "can you tell me more?" — a
   vague open question is what produced the vague answer in the first
-  place.
+  place. Keep it to one thing they can say yes or no to; a list of
+  options in one breath is a compound question wearing a disguise, and
+  it comes back as an answer you cannot map to a fact.
 - If the user answers a question you didn't ask, use that information for
   the unknown it actually resolves, and don't force them back to the
   original one.

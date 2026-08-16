@@ -70,16 +70,16 @@ iso-provisioned: ## Build the ISO with KEYS_FILE baked in (see hosts/installer/i
 	@test -f "$(KEYS_FILE)" || { echo "KEYS_FILE not found: $(KEYS_FILE)" >&2; exit 1; }
 	AGENTIC_OS_BAKE_CLOUD_KEYS=$(KEYS_FILE) nix build .#installer-iso --impure --print-out-paths
 
-iso-kiosk: ## Build the ISO with the UI kiosk baked, no secrets (needs UI_BUNDLE; see `make ui-bundle`)
+iso-kiosk: ## Build the ISO with the UI baked in, no secrets (needs UI_BUNDLE; see `make ui-bundle`)
 	@test -f "$(UI_BUNDLE)" || { echo "UI_BUNDLE not found: $(UI_BUNDLE) -- run 'make ui-bundle' first" >&2; exit 1; }
 	AGENTIC_OS_UI_BUNDLE=$(UI_BUNDLE) nix build .#installer-iso --impure --print-out-paths
 
-iso-full: ## Build the complete device image: kiosk UI + provisioned cloud key
+iso-full: ## Build the complete device image: UI + provisioned cloud key
 	@test -f "$(UI_BUNDLE)" || { echo "UI_BUNDLE not found: $(UI_BUNDLE) -- run 'make ui-bundle' first" >&2; exit 1; }
 	@test -f "$(KEYS_FILE)" || { echo "KEYS_FILE not found: $(KEYS_FILE)" >&2; exit 1; }
 	AGENTIC_OS_UI_BUNDLE=$(UI_BUNDLE) AGENTIC_OS_BAKE_CLOUD_KEYS=$(KEYS_FILE) nix build .#installer-iso --impure --print-out-paths
 
-host: ## Build the full NixOS host closure (pure = headless, no kiosk)
+host: ## Build the full NixOS host closure (pure = headless, no graphical session)
 	nix build .#nixosConfigurations.host.config.system.build.toplevel --print-out-paths
 
 ui-bundle: ## Build the release Tauri binary with the system toolchain
@@ -90,8 +90,8 @@ ui-bundle: ## Build the release Tauri binary with the system toolchain
 	# env -i on purpose: the repo devShell's Nix cc/binutils must not
 	# leak into this build -- mixing them with system GTK libs breaks
 	# the final link. ui/ is built with the system toolchain, always.
-	# The kiosk overlay makes the device window fullscreen/undecorated;
-	# dev (`make gui`) keeps the normal window.
+	# The device overlay makes the window fullscreen/undecorated so the
+	# assistant fills its workspace; dev (`make gui`) keeps a normal window.
 	cd ui && env -i HOME="$$HOME" USER="$$USER" TERM="$$TERM" \
 	  PATH="$$HOME/.bun/bin:$$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin" \
 	  NUXT_TELEMETRY_DISABLED=1 \
@@ -104,6 +104,6 @@ ui-bundle: ## Build the release Tauri binary with the system toolchain
 	  echo "SCOPE HASH MISMATCH: css has $$hash but no JS applies it -- stale-cache build, do not ship" >&2; exit 1; \
 	fi; echo "scope-hash check ok: $$hash"
 
-host-kiosk: ## Build the host closure with the kiosk (needs UI_BUNDLE; see `make ui-bundle`)
+host-kiosk: ## Build the host closure with the graphical session (needs UI_BUNDLE; see `make ui-bundle`)
 	@test -f "$(UI_BUNDLE)" || { echo "UI_BUNDLE not found: $(UI_BUNDLE) -- run 'make ui-bundle' first" >&2; exit 1; }
 	AGENTIC_OS_UI_BUNDLE=$(UI_BUNDLE) nix build .#nixosConfigurations.host.config.system.build.toplevel --impure --print-out-paths

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { invoke } from "@tauri-apps/api/core";
+import { agentErrorMessage } from "~/lib/agentErrors";
 
 definePageMeta({ layout: false });
 
@@ -19,7 +20,7 @@ async function refreshStatus() {
     status.value = await invoke<KeyStatus>("cloud_key_status");
   } catch (e) {
     status.value = "none";
-    errorMessage.value = String(e);
+    errorMessage.value = agentErrorMessage("cloudKey", e);
   }
 }
 
@@ -33,7 +34,7 @@ async function save() {
     keyInput.value = "";
     await refreshStatus();
   } catch (e) {
-    errorMessage.value = String(e);
+    errorMessage.value = agentErrorMessage("cloudKey", e);
   } finally {
     busy.value = false;
   }
@@ -48,7 +49,7 @@ async function disconnect() {
     // status reflects whatever is actually active now.
     await refreshStatus();
   } catch (e) {
-    errorMessage.value = String(e);
+    errorMessage.value = agentErrorMessage("cloudKey", e);
   } finally {
     busy.value = false;
   }

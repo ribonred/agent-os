@@ -9,7 +9,8 @@
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "tauri": "tauri",
-    "check": "nuxt typecheck"
+    "check": "nuxt typecheck",
+    "test": "bun test"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

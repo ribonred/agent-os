@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ pkgs, lib, nixpkgs, ... }:
 
 {
   networking.hostName = "agentic-os";
@@ -6,34 +6,31 @@
 
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
+  # `nix profile` resolves nixpkgs#foo through the registry. Unpinned it
+  # follows the default registry, so anything the agent installs is built
+  # against a different nixpkgs and drags a second glibc onto a small
+  # disk. Pinned, it reuses what is already there.
+  nix.registry.nixpkgs.flake = nixpkgs;
+
   users.users.admin = {
     isNormalUser = true;
     extraGroups = [ "wheel" ];
-    # No password/SSH key set yet -- decide auth strategy before this box
-    # leaves the dev bench. Do not ship a device with an unauthenticated user.
+    # Decide auth strategy before this leaves the bench. Do not ship a
+    # device with an unauthenticated user.
     initialPassword = "changeme";
   };
 
   services.openssh.enable = true;
 
-  # The agent runtime (modules/hermes-agent.nix carries the full
-  # configuration). The GUI is a frontend to this gateway -- without it
-  # the device has no agent at all, which a bench install demonstrated
-  # the hard way: everything booted, and chat had nothing to reach.
+  # Without this the device has no agent at all -- a bench install proved
+  # it: everything booted and chat had nothing to reach.
   services.hermes-agent.enable = true;
 
-  # Boot identity (design/DESIGN.md): the brand mark centered on a dark
-  # splash from early boot until the kiosk compositor takes over, with
-  # kernel/systemd chatter silenced -- the product experience starts at
-  # power-on, not at the GUI.
-  #
-  # A custom theme, not `boot.plymouth.logo`, for two reasons verified
-  # live on a device VM: plymouth's two-step plugin composites a
-  # no-alpha PNG as fully transparent (the watermark simply never
-  # appears -- the design JPEG must become an RGBA glyph with its black
-  # field cut to transparency), and the stock spinner theme pins the
-  # watermark to the bottom edge with no way to center it from the
-  # NixOS module.
+  # Boot identity (design/DESIGN.md): brand mark on black from power-on,
+  # no kernel chatter. A custom theme rather than `boot.plymouth.logo`
+  # for two reasons found on a VM: two-step composites a no-alpha PNG as
+  # fully transparent, and the stock spinner theme pins the watermark to
+  # the bottom edge with no way to center it.
   boot.plymouth = {
     enable = true;
     theme = "agentic";
@@ -44,8 +41,8 @@
           theme=$out/share/plymouth/themes/agentic
           mkdir -p $theme
 
-          # Dialog/throbber assets reused from the stock spinner theme
-          # (disk-password prompts etc. still need them).
+          # Dialog/throbber assets from the stock spinner theme --
+          # disk-password prompts still need them.
           cp ${pkgs.plymouth}/share/plymouth/themes/spinner/throbber-*.png \
              ${pkgs.plymouth}/share/plymouth/themes/spinner/entry.png \
              ${pkgs.plymouth}/share/plymouth/themes/spinner/bullet.png \
@@ -55,16 +52,13 @@
              ${pkgs.plymouth}/share/plymouth/themes/spinner/keymap-render.png \
              $theme/
 
-          # design/logo.jpg stays the single source of truth: white mark
-          # on near-black becomes a transparent-background glyph (alpha
-          # from luminance), so it sits seamlessly on the pure-black
-          # splash. -strip drops the JPEG's EXIF baggage.
+          # design/logo.jpg is the single source: alpha derived from
+          # luminance so the mark sits on pure black seamlessly.
           magick ${../../design/logo.jpg} -resize 256x256 -strip \
             \( +clone -colorspace gray \) -alpha off \
             -compose CopyOpacity -composite PNG32:$theme/watermark.png
 
-          # two-step layout: mark dead-center, spinner below it.
-          # Alignments were tuned and screenshot-verified on the VM.
+          # Mark dead-center, spinner below. Alignments screenshot-verified.
           cat > $theme/agentic.plymouth <<EOF
           [Plymouth Theme]
           Name=agentic-os
@@ -98,85 +92,68 @@
         '')
     ];
   };
-  # vt.global_cursor_default=0 kills the blinking console cursor that
-  # otherwise shows on the black screen before the splash paints.
+  # vt.global_cursor_default=0 kills the blinking console cursor before
+  # the splash paints.
   boot.kernelParams = [ "quiet" "splash" "udev.log_level=3" "vt.global_cursor_default=0" ];
   boot.consoleLogLevel = 3;
   boot.initrd.verbose = false;
-  # No bootloader menu on a customer device; holding a key at power-on
-  # still summons it for bench work.
+  # No bootloader menu; holding a key at power-on still summons it.
   boot.loader.timeout = 0;
 
+  # Scoped rather than a blanket allowUnfree: anything else unfree that
+  # creeps in should be a build failure someone looks at, not something
+  # that silently ships. Redistributing Google's binary in a sold product
+  # is a licensing question worth confirming before units ship.
+  nixpkgs.config.allowUnfreePredicate =
+    pkg: builtins.elem (lib.getName pkg) [ "google-chrome" ];
+
   environment.systemPackages = with pkgs; [
+    # The only application baked in beyond what the system needs --
+    # everything else is installed on request, since each package here
+    # costs size in an ISO carrying the whole closure for offline install.
+    google-chrome
+
     git
     vim
-    uv  # every Python *project* invocation goes through uv -- no bare pip
-    python3 # ...but a real interpreter must exist: uv's own downloaded
-            # CPython builds assume an FHS filesystem layout and fail on
-            # NixOS, which left an earlier image with `uv` on PATH and no
-            # runnable python at all. This is the interpreter uv should
-            # target (e.g. `uv venv --python python3`).
-    fnm # nvm is not packaged in nixpkgs -- its curl-installed, rc-file-
-        # mutating model doesn't fit how Nix manages tool versions. fnm is
-        # the equivalent that is actually packaged and works declaratively.
+    uv # every Python *project* invocation goes through uv -- no bare pip
+    # ...but a real interpreter must exist: uv's downloaded CPython
+    # assumes FHS and fails on NixOS. This is what uv should target.
+    python3
+    fnm # nvm isn't packaged; its rc-file-mutating model doesn't fit Nix
     bun
   ];
 
   services.ollama = {
     package = pkgs.ollama-cpu;
-    # Deliberately NO loadModels here: that would download ~2GB silently
-    # at first networked boot, invisible to the person setting up the
-    # device. Model acquisition is instead a GUI-driven onboarding step
-    # (visible progress, user consent for the download) -- the GUI/agent
-    # runtime triggers the pull through Ollama's API when the time
-    # comes. Until then the local tier fails loudly and routing leans
-    # cloud, which is the honest state of a fresh device.
+    # No loadModels: that downloads ~2GB silently at first networked
+    # boot. Model acquisition is a GUI onboarding step with visible
+    # progress and consent. Until then routing leans cloud, which is the
+    # honest state of a fresh device.
   };
 
-  # Required for the actual supported-language list (brain/onboarding.md):
-  # 5 of the 10 languages need non-Latin scripts, and design/DESIGN.md
-  # deliberately relies on the system font stack instead of a bundled
-  # webfont -- that choice only works if the system actually has these
-  # installed. noto-fonts alone covers Thai/Devanagari/Latin/Vietnamese
-  # diacritics; CJK is a separate, much larger package upstream splits
-  # out on purpose, hence listed separately here.
+  # 5 of the 10 supported languages need non-Latin scripts, and
+  # design/DESIGN.md relies on the system font stack rather than a
+  # bundled webfont -- which only works if these are installed. CJK is a
+  # separate, much larger package upstream splits out on purpose.
   fonts.packages = with pkgs; [
     noto-fonts
     noto-fonts-cjk-sans
   ];
 
-  # The UI shell stores the cloud API key in the OS keyring (Secret
-  # Service API) rather than a plain file -- that API is only available
-  # if a keyring daemon is actually running. Without this, saving a key
-  # in the UI fails loudly instead of silently degrading to insecure
-  # storage. Auto-unlock on login (PAM integration) is a follow-up once
-  # the device's session/login flow is decided -- until then a first
-  # keyring access may prompt to set a keyring password on desktop
-  # sessions.
+  # The shell stores the cloud key in the OS keyring, which needs a
+  # daemon running -- without this, saving a key fails loudly rather than
+  # degrading to insecure storage.
   services.gnome.gnome-keyring.enable = true;
 
-  # A device can also ship with a vendor-provisioned cloud key so the
-  # buyer never has to create an API account: the UI shell reads
-  # /etc/agentic-os/cloud-keys.toml (root-owned, mode 0600) as a fallback
-  # when no user key is in the keyring. The actual key is written at
-  # deployment/factory time by the provisioning process, never committed
-  # to this repository. Expected shape:
-  #
-  #   [openrouter]
-  #   api_key = "..."
-  #
-  # A secrets-management tool (e.g. sops-nix/agenix) should own writing
-  # that file once the factory provisioning flow is designed.
-  #
-  # The file is written at factory time as root, before the device user
-  # exists on the installed system; this hands it to that user at boot.
-  # 'z' only adjusts existing files -- an unprovisioned device is
-  # untouched.
+  # Optional vendor-provisioned cloud key, so the buyer needs no API
+  # account. Written at factory time as root, before the device user
+  # exists; 'z' hands it over at boot and leaves unprovisioned devices
+  # untouched. Shape: [openrouter] / api_key = "...". Never committed --
+  # a secrets tool should own writing it once provisioning is designed.
   systemd.tmpfiles.rules = [
     "z /etc/agentic-os/cloud-keys.toml 0600 admin users - -"
   ];
 
-  # Bumping this requires reading the NixOS release notes for breaking
-  # changes first -- do not upgrade blindly.
+  # Read the release notes before bumping -- do not upgrade blindly.
   system.stateVersion = "26.05";
 }

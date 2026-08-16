@@ -11,7 +11,7 @@ phases:
     description: "Constitution, tool registry runtime, cloud/local LLM routing"
   - id: ui-shell
     name: "Tauri UI shell"
-    description: "Kiosk-style assistant UI, own file manager"
+    description: "Assistant UI over a real desktop, own file manager"
   - id: dgx-track
     name: "DGX Spark track"
     description: "Nix-as-a-layer on DGX OS, secondary to NixOS mini-PC track"
