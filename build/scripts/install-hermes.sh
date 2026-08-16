@@ -25,7 +25,11 @@ DEVICE_USER="$3"
 # Pin the agent runtime. An unpinned installer means two builds a week
 # apart ship different agents with no record of what changed -- the
 # device's whole behaviour lives in this component.
-HERMES_REF="${HERMES_REF:-v0.19.0}"
+#
+# Upstream tags by date, NOT by the version its CLI reports: `hermes
+# --version` says 0.19.0 while the tag for that build is v2026.7.20.
+# Check `git ls-remote --tags` before bumping this.
+HERMES_REF="${HERMES_REF:-v2026.8.13}"
 HERMES_REPO="${HERMES_REPO:-https://github.com/NousResearch/hermes-agent.git}"
 
 # The agent runs as its own system user, not as the owner. It needs to
@@ -75,26 +79,84 @@ in_chroot "
 # Upstream's installer is fetched at build time on the build machine's
 # network and run inside the chroot. It brings its own uv and Python, so
 # it does not depend on the distro's interpreter version.
-echo "  installing hermes $HERMES_REF ..."
-curl -fsSL https://hermes-agent.nousresearch.com/install.sh \
-    > "$ROOTFS/tmp/hermes-install.sh"
-chmod +x "$ROOTFS/tmp/hermes-install.sh"
+echo "  installing hermes ..."
 
-# Root install => FHS layout: code at /usr/local/lib/hermes-agent, command
-# at /usr/local/bin/hermes, world-readable uv Python under /usr/local.
-in_chroot "/tmp/hermes-install.sh --hermes-home $HERMES_HOME"
-rm -f "$ROOTFS/tmp/hermes-install.sh"
+HERMES_CODE_DIR=/usr/local/lib/hermes-agent
 
-# Pin to the tested revision. The installer tracks its default branch, so
-# without this the image's agent is whatever upstream shipped that day.
-HERMES_CODE="$(in_chroot "readlink -f /usr/local/lib/hermes-agent 2>/dev/null || echo $HERMES_HOME/hermes-agent")"
+# Upstream's installer, run as-is. It clones the source, brings its own
+# uv and Python, and sets up the venv.
+#
+# The clone is ~226MB and is by far the most failure-prone step of the
+# whole build. Over HTTPS it crawled and repeatedly died mid-pack
+# ("RPC failed ... transfer closed"), killing three image builds. Over
+# SSH, on the same machine and connection, the identical clone completes
+# in under four minutes -- so the installer's own "try SSH first" path is
+# worth enabling rather than letting it fall through to HTTPS.
+#
+# Set HERMES_SSH_KEY to a GitHub-registered private key to take that
+# path. Without it the build still works, just over HTTPS.
+#
+# The key is copied in for the install and removed immediately after: a
+# personal credential must never reach the image, which is copied
+# byte-for-byte onto every unit.
+HERMES_SSH_KEY="${HERMES_SSH_KEY:-}"
+
+if [ -n "$HERMES_SSH_KEY" ] && [ -f "$HERMES_SSH_KEY" ]; then
+    install -D -m 700 -d "$ROOTFS/root/.ssh"
+    install -m 600 "$HERMES_SSH_KEY" "$ROOTFS/root/.ssh/id_build"
+    cat > "$ROOTFS/root/.ssh/config" <<'EOF'
+Host github.com
+    HostName github.com
+    User git
+    IdentityFile /root/.ssh/id_build
+    IdentitiesOnly yes
+    StrictHostKeyChecking no
+    BatchMode yes
+EOF
+    chmod 600 "$ROOTFS/root/.ssh/config"
+    echo "  using SSH for the clone (key: $HERMES_SSH_KEY)"
+fi
+
+# Whatever happens below, the credential does not survive this function.
+drop_build_key() {
+    rm -f "$ROOTFS/root/.ssh/id_build" "$ROOTFS/root/.ssh/config"
+    rmdir "$ROOTFS/root/.ssh" 2>/dev/null || true
+}
+trap drop_build_key EXIT
+
 in_chroot "
-    if [ -d '$HERMES_CODE/.git' ]; then
-        git -C '$HERMES_CODE' fetch --tags --quiet origin || true
-        git -C '$HERMES_CODE' checkout --quiet '$HERMES_REF' || \
-            echo 'warning: could not check out $HERMES_REF -- image carries the installer default' >&2
-    fi
+    curl -fsSL https://hermes-agent.nousresearch.com/install.sh \
+        | bash -s -- --hermes-home $HERMES_HOME
 "
+
+# Pin to the tested revision. The installer tracks upstream's default
+# branch, so without this two builds a week apart ship different agents
+# with no record of what changed -- and the agent's behaviour IS the
+# product.
+#
+# This runs BEFORE the build key is dropped: the installer clones
+# shallow, so the tag has to be fetched, and a fetch needs the same
+# credentials the clone used. Dropping the key first made this silently
+# fall back to the default branch.
+in_chroot "
+    git -C '$HERMES_CODE_DIR' fetch --depth 1 origin tag '$HERMES_REF'
+    git -C '$HERMES_CODE_DIR' checkout --quiet 'refs/tags/$HERMES_REF'
+" || die "could not pin the agent runtime to $HERMES_REF.
+The image would ship whatever was on upstream's default branch, which is
+a silent change to the product's behaviour. Check the tag exists:
+  git ls-remote --tags $HERMES_REPO | grep $HERMES_REF"
+
+drop_build_key
+trap - EXIT
+
+# Assert rather than trust: report the revision actually checked out, and
+# fail if it is not the pinned one. Printing the intended tag while the
+# tree sat on another revision is exactly how an unpinned agent would
+# reach a customer unnoticed.
+actual_ref="$(in_chroot "git -C '$HERMES_CODE_DIR' describe --tags --exact-match 2>/dev/null \
+                        || git -C '$HERMES_CODE_DIR' rev-parse --short HEAD")"
+[ "$actual_ref" = "$HERMES_REF" ] || die "agent runtime is at '$actual_ref', expected '$HERMES_REF'"
+echo "  hermes revision: $actual_ref"
 
 in_chroot "chown -R $HERMES_USER:$HERMES_USER $HERMES_HOME"
 

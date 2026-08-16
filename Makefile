@@ -19,7 +19,27 @@ UI_BUNDLE ?= $(REPO)/ui/src-tauri/target/release/ui
 ROOTFS ?= $(REPO)/build/rootfs
 IMAGE  ?= $(REPO)/build/agentic-os.img
 
-.PHONY: help dev gui hermes-env test ui-bundle rootfs image golden clean-image
+BUILD_IMAGE ?= agentic-os-build
+# The UI binary's path as seen from inside the container, where the repo
+# is bind-mounted at /repo.
+DOCKER_UI   ?= /repo/ui/src-tauri/target/release/ui
+# Ollama's tarball bundles CUDA and ROCm runtimes the mini-PC tier has no
+# use for -- roughly 1.4GB compressed. Set to 1 for a faster iteration
+# and a much smaller image; llama.cpp still gives the device local
+# inference.
+OLLAMA_SKIP ?= 0
+# Chrome comes from Google's apt repo. Redistributing their binary in a
+# sold product is a licensing question that must be confirmed before
+# units ship -- set to 1 to build an image with no browser.
+BROWSER_SKIP ?= 0
+# A GitHub-registered private key. The agent runtime's ~226MB clone is
+# dramatically faster and more reliable over SSH than HTTPS from here --
+# minutes rather than dying mid-transfer. Mounted read-only for the
+# clone and never written into the image. Leave empty to use HTTPS.
+HERMES_SSH_KEY ?=
+
+.PHONY: help dev gui hermes-env test ui-bundle rootfs image golden clean-image \
+        build-image rootfs-docker image-docker golden-docker shell-docker
 
 help: ## List available targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -77,6 +97,47 @@ golden: ui-bundle rootfs image ## Build everything: UI, rootfs, and the flashabl
 
 clean-image: ## Remove the built rootfs and image
 	sudo rm -rf $(ROOTFS) $(IMAGE) $(IMAGE).zst
+
+# --- containerized build -------------------------------------------------
+# Runs the same scripts inside the release the image targets, so
+# debootstrap has a script for the suite and the host tooling matches
+# what the image boots with. --privileged is needed for chroot, bind
+# mounts and loop devices; there is no lesser capability set that covers
+# all three.
+#
+# A container cannot tell you the image boots. Only hardware can.
+
+build-image: ## Build the container that builds the image
+	docker build -t $(BUILD_IMAGE) $(REPO)/build
+
+# The key mount and its env var appear only when HERMES_SSH_KEY is set,
+# so the default invocation carries no credential at all.
+# $(abspath) is not used here: it resolves against the repo, mangling a
+# leading ~ into a repo-relative path. Expand the tilde against $HOME
+# instead, so HERMES_SSH_KEY=~/key/foo.pem behaves as typed.
+KEY_PATH  = $(patsubst ~/%,$(HOME)/%,$(HERMES_SSH_KEY))
+KEY_MOUNT = $(if $(HERMES_SSH_KEY),-v $(KEY_PATH):/build-key:ro -e HERMES_SSH_KEY=/build-key,)
+
+rootfs-docker: build-image ## Stage 1 inside the target release (recommended)
+	docker run --rm --privileged \
+	  -v $(REPO):/repo \
+	  -e OLLAMA_SKIP=$(OLLAMA_SKIP) \
+	  -e BROWSER_SKIP=$(BROWSER_SKIP) \
+	  $(KEY_MOUNT) \
+	  $(BUILD_IMAGE) \
+	  /repo/build/build-rootfs.sh --rootfs /repo/build/rootfs --ui $(DOCKER_UI)
+
+image-docker: build-image ## Stage 2 inside the target release
+	@test -d "$(ROOTFS)" || { echo "no rootfs at $(ROOTFS) -- run 'make rootfs-docker' first" >&2; exit 1; }
+	docker run --rm --privileged \
+	  -v $(REPO):/repo -v /dev:/dev \
+	  $(BUILD_IMAGE) \
+	  /repo/build/make-image.sh --rootfs /repo/build/rootfs --out /repo/build/agentic-os.img
+
+golden-docker: ui-bundle rootfs-docker image-docker ## Everything, built in the container
+
+shell-docker: build-image ## Interactive shell in the build container (debugging)
+	docker run --rm -it --privileged -v $(REPO):/repo -v /dev:/dev $(BUILD_IMAGE)
 
 ui-bundle: ## Build the release Tauri binary with the system toolchain
 	# Clean caches first: a stale bundler cache once produced a build

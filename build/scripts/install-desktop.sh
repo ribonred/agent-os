@@ -76,6 +76,50 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Browser
+# ---------------------------------------------------------------------------
+# The only application baked in beyond what the system needs. Everything
+# else is installed on request, since each package costs size in an image
+# that carries the whole system for an offline install.
+#
+# Chrome from Google's own apt repo rather than the archive's `firefox`
+# or `chromium-browser`: both of those are transitional packages that
+# install snaps, and a snap wants snapd running, auto-updates over the
+# network, and is slow on first launch -- none of which suits a device
+# that may never see a network.
+#
+# OPEN QUESTION, deliberately not settled here: redistributing Google's
+# binary inside a sold product is a licensing matter someone must confirm
+# before units ship. Set BROWSER_SKIP=1 to build without it; the desktop
+# is fully usable, it simply has no browser until one is chosen.
+BROWSER_SKIP="${BROWSER_SKIP:-0}"
+
+if [ "$BROWSER_SKIP" = "1" ]; then
+    echo "  browser:   SKIPPED (BROWSER_SKIP=1)"
+else
+    # Keyed repo, not a bare .deb download: this way the browser gets
+    # security updates through the same apt path as everything else on
+    # any unit that does reach a network.
+    curl -fsSL --retry 3 https://dl.google.com/linux/linux_signing_key.pub \
+        -o "$ROOTFS/usr/share/keyrings/google-chrome.asc"
+
+    install -D -m 644 /dev/stdin "$ROOTFS/etc/apt/sources.list.d/google-chrome.sources" <<'EOF'
+Types: deb
+URIs: https://dl.google.com/linux/chrome/deb/
+Suites: stable
+Components: main
+Architectures: amd64
+Signed-By: /usr/share/keyrings/google-chrome.asc
+EOF
+
+    in_chroot "
+        apt-get update -qq
+        apt-get install -y --no-install-recommends google-chrome-stable
+    "
+    echo "  browser:   google-chrome-stable (from Google's apt repo)"
+fi
+
+# ---------------------------------------------------------------------------
 # Keyring
 # ---------------------------------------------------------------------------
 # The shell stores the cloud key in the OS keyring. Ubuntu wires

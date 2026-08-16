@@ -21,12 +21,19 @@ COUNTDOWN="${COUNTDOWN:-15}"
 
 usage() {
     cat <<EOF
-usage: sudo $0 --image FILE [options]
+usage: sudo $0 --image FILE|URL [options]
 
-  --image FILE  .img or .img.zst to write   (required)
+  --image SRC   .img or .img.zst to write   (required)
+                A local path, or an http(s) URL streamed straight to the
+                disk -- which means one USB stick is enough: boot a live
+                Linux from it and pull the image over the network.
   --disk DEV    target disk                 (default: autodetect internal)
   --yes         skip the countdown          (factory use)
   -h, --help    this message
+
+examples:
+  sudo $0 --image /media/usb/agentic-os.img.zst
+  sudo $0 --image http://192.168.1.5:8000/agentic-os.img.zst
 
 Autodetection prefers NVMe, then a non-removable SATA disk. The boot
 medium is removable, so it is never selected.
@@ -47,7 +54,16 @@ die() { printf '\033[1;31merror: %s\033[0m\n' "$*" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "must run as root"
 [ -n "$IMAGE" ] || { usage >&2; die "--image is required"; }
-[ -f "$IMAGE" ] || die "image not found: $IMAGE"
+
+# A URL streams straight to the disk rather than being staged on the
+# boot medium first -- which is what makes a single USB stick enough,
+# and what lets a bench flash many units without copying the image onto
+# each stick.
+case "$IMAGE" in
+    http://*|https://*) IMAGE_IS_URL=true ;;
+    *) IMAGE_IS_URL=false
+       [ -f "$IMAGE" ] || die "image not found: $IMAGE" ;;
+esac
 
 # The disk is wiped by the time anything downstream can fail, so a silent
 # exit leaves a machine that looks installed until its first boot finds
@@ -86,10 +102,18 @@ disk_model="$(lsblk -dno MODEL "$DISK" 2>/dev/null || echo unknown)"
 
 # The image is sized for the smallest supported disk; anything smaller
 # cannot hold it, and dd would only discover that most of the way in.
-if [[ "$IMAGE" == *.zst ]]; then
+# A streamed image cannot be measured ahead of the write, so the check
+# is skipped there rather than guessed at.
+if [ "$IMAGE_IS_URL" = true ]; then
+    image_size=""
+elif [[ "$IMAGE" == *.zst ]]; then
     image_size="$(zstd -l "$IMAGE" 2>/dev/null | awk 'NR==2 {print $5}' || echo 0)"
 else
     image_size="$(stat -c %s "$IMAGE")"
+fi
+
+if [ -n "$image_size" ] && [ "$image_size" != 0 ] && [ "$image_size" -gt "$disk_size" ]; then
+    die "image ($(numfmt --to=iec "$image_size")) does not fit $DISK ($(numfmt --to=iec "$disk_size"))"
 fi
 
 cat <<EOF
@@ -119,7 +143,17 @@ done
 wipefs --all "$DISK" >/dev/null
 
 echo "  writing ..."
-if [[ "$IMAGE" == *.zst ]]; then
+# pipefail matters here specifically: a truncated download or a corrupt
+# archive must fail the flash, not quietly write a short disk that looks
+# installed until it does not boot.
+set -o pipefail
+if [ "$IMAGE_IS_URL" = true ]; then
+    if [[ "$IMAGE" == *.zst ]]; then
+        curl -fL --retry 3 "$IMAGE" | zstdcat | dd of="$DISK" bs=4M conv=fsync status=progress
+    else
+        curl -fL --retry 3 "$IMAGE" | dd of="$DISK" bs=4M conv=fsync status=progress
+    fi
+elif [[ "$IMAGE" == *.zst ]]; then
     zstdcat "$IMAGE" | dd of="$DISK" bs=4M conv=fsync status=progress
 else
     dd if="$IMAGE" of="$DISK" bs=4M conv=fsync status=progress

@@ -62,6 +62,11 @@ die() { printf '\033[1;31merror: %s\033[0m\n' "$*" >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || die "must run as root"
 [ -d "$ROOTFS" ] || die "rootfs not found: $ROOTFS -- run build-rootfs.sh first"
 
+# Stage 1 leaves this behind when it aborts. Imaging a half-built tree
+# would produce something that looks like a device and is not one.
+[ -f "$ROOTFS/.INCOMPLETE" ] && die "$ROOTFS is from a FAILED build (marked $(cat "$ROOTFS/.INCOMPLETE")).
+Remove it and build again:  sudo rm -rf $ROOTFS"
+
 for tool in sgdisk mkfs.vfat mkfs.ext4 losetup rsync; do
     command -v "$tool" >/dev/null || die "$tool not found"
 done

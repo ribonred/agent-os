@@ -5,6 +5,9 @@
 build/rootfs/
 build/*.img
 build/*.img.zst
+# Upstream checkouts cached between builds so a rebuild does not re-fetch
+# hundreds of MB. Safe to delete; it is refetched on the next build.
+build/cache/
 __pycache__/
 .pytest_cache/
 .playwright-mcp/

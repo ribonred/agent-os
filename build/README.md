@@ -5,6 +5,24 @@ system is built once here, snapshotted, and copied onto each unit
 byte-for-byte. Nothing is installed, resolved or downloaded on the
 customer's device — it powers on with every tool already in place.
 
+There are two ways to produce that image. They share the same install
+scripts, so both put the same software on the device.
+
+**A — capture from a reference machine.** Install Ubuntu on a real unit,
+provision it, confirm it works, then snapshot its disk.
+
+```
+  the reference NUC                      other units
+  ─────────────────                      ───────────
+  install Ubuntu 26.04 Desktop
+  provision.sh        (installs everything)
+  reboot, test it properly
+  capture-image.sh    →  agentic-os.img.zst  →  flash.sh  →  /dev/nvme0n1
+```
+
+**B — synthesize in a container.** No reference machine; the tree is
+assembled from scratch.
+
 ```
   build machine (network, once)          unit (offline, per device)
   ─────────────────────────────          ──────────────────────────
@@ -12,7 +30,79 @@ customer's device — it powers on with every tool already in place.
   make-image.sh     →  agentic-os.img.zst  →  flash.sh  →  /dev/nvme0n1
 ```
 
-## Building
+A is the faster route to a first working device: it runs on the hardware
+the product ships on, so drivers, boot and the GPU are proven rather than
+deferred. B is reproducible without hardware and is the better factory
+path once the design has settled. Start with A, move to B.
+
+## A — building from a reference machine
+
+**1. Install Ubuntu 26.04 Desktop on the NUC**, normally, from a USB
+stick. Nothing special: create the owner's account, connect to a
+network, let it finish and reboot.
+
+**2. Get this repo onto it** and provision:
+
+```bash
+git clone <this repo> && cd agentic-os
+sudo ./build/provision.sh --user <the account you created>
+```
+
+It installs every package, both inference engines, the agent runtime,
+the browser, and enables autologin. Options match the container build —
+`OLLAMA_SKIP=1`, `BROWSER_SKIP=1`, and `--key ~/path/to/key.pem` if the
+agent-runtime clone is slow over HTTPS.
+
+To include the assistant UI, build it first (`make ui-bundle` on a
+machine with the toolchain) and pass `--ui /path/to/ui`.
+
+**3. Reboot and actually use it.** This is the step the container path
+cannot do for you: confirm it boots, autologin works, the desktop comes
+up, the assistant runs, and the agent answers. Fix anything wrong and
+re-run `provision.sh` — it is safe to repeat.
+
+**4. Capture the disk.**
+
+The NUC's own filesystem cannot be imaged while it is running, so this
+step boots a **live USB** instead — a temporary system that leaves the
+internal disk untouched. That has two consequences worth stating plainly,
+because neither is obvious:
+
+- **The repo is not available.** It lives on the internal disk, which is
+  the thing being imaged and must stay unmounted. Copy `capture-image.sh`
+  onto a USB stick beforehand, or `git clone` it again inside the live
+  session — it is one small script with no dependencies.
+- **The image cannot be written "here".** A live session's filesystem is
+  RAM: it is gone at reboot, and it is smaller than the image. The output
+  must go to external storage. The script refuses to write anywhere else
+  rather than let you discover this after a long capture.
+
+So, before rebooting, put `capture-image.sh` on a USB stick with room for
+the image — one stick does both jobs. Then boot the NUC from the Ubuntu
+live USB, choose **Try Ubuntu**, and:
+
+```bash
+lsblk                                    # identify the stick and the NUC's disk
+sudo mkdir -p /mnt/usb
+sudo mount /dev/sdX1 /mnt/usb            # the stick, NOT /dev/nvme0n1
+
+sudo /mnt/usb/capture-image.sh \
+     --disk /dev/nvme0n1 \
+     --out  /mnt/usb/agentic-os.img
+```
+
+`--disk` is the machine being captured; `--out` is where the image is
+written. They must be different devices, and the script checks that.
+
+Result: `/mnt/usb/agentic-os.img.zst`, typically 2–4 GB.
+
+**5. Flash the second machine.** Same live USB, same stick:
+
+```bash
+sudo /mnt/usb/flash.sh --image /mnt/usb/agentic-os.img.zst
+```
+
+## B — building in a container
 
 ```bash
 make golden          # UI + rootfs + image, end to end
@@ -63,10 +153,12 @@ to a customer.
 | `scripts/install-services.sh` | PostgreSQL (unix socket only) and Redis (loopback). |
 | `scripts/install-inference.sh` | llama.cpp (from the archive) and Ollama (upstream tarball). Both installed, neither enabled, no models. |
 | `scripts/install-hermes.sh` | The agent runtime, its system user, sudo rule, identity and gateway service. |
-| `scripts/install-desktop.sh` | Ubuntu Desktop autologin and the assistant's autostart entry. |
+| `scripts/install-desktop.sh` | Ubuntu Desktop autologin, browser, and the assistant's autostart entry. |
 | `rootfs-overlay/` | Files copied into the image verbatim, including the first-boot unit. |
-| `make-image.sh` | Stage 2. GPT + ESP + ext4 root, bootloader, compression. |
-| `flash.sh` | Stage 3. Raw block copy onto a unit. |
+| `make-image.sh` | Path B stage 2. GPT + ESP + ext4 root, bootloader, compression. |
+| `provision.sh` | Path A. Provisions a live, freshly-installed Ubuntu machine. |
+| `capture-image.sh` | Path A. Strips per-unit identity, then images the disk. |
+| `flash.sh` | Both paths. Raw block copy onto a unit, from a file or a URL. |
 
 ## Per-unit state
 
