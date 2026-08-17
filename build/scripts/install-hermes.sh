@@ -124,13 +124,6 @@ drop_build_key() {
 }
 trap drop_build_key EXIT
 
-# Playwright has no build for Ubuntu 26.04 yet. Its installer stalls
-# uninterruptibly on an apt release it does not recognise, and upstream's
-# script only recovers after a 600s timeout before retrying with this
-# same override -- so setting it up front turns ten wasted minutes into a
-# working install. The 24.04 build runs correctly on 26.04; Playwright's
-# maintainers document this env var as the supported escape hatch for
-# unrecognised platforms. Remove it once a 26.04 build ships.
 #
 # --skip-setup and --non-interactive are both required, not belt and
 # braces: the installer otherwise opens a setup wizard asking which
@@ -140,23 +133,32 @@ trap drop_build_key EXIT
 # declared in the config.yaml written further down, which the wizard
 # would overwrite.
 #
-# HERMES_SKIP_BROWSER=1 drops the Playwright/Chromium download entirely
-# (~300MB). The agent's browser tools stop working; everything else is
-# unaffected, and the device still ships a real browser for the owner.
-PLAYWRIGHT_PLATFORM="${PLAYWRIGHT_HOST_PLATFORM_OVERRIDE:-ubuntu24.04-x64}"
+# The agent's browser tooling is skipped during this install, and then
+# done separately below.
+#
+# Why: it pins Playwright 1.58.2, whose platform table stops at
+# ubuntu24.04. Running as root the installer takes its `--with-deps`
+# branch, which shells out to apt with a dependency list keyed by distro
+# version -- and with no entry for 26.04 that apt call hangs
+# uninterruptibly, taking the whole image build with it for 600s.
+#
+# PLAYWRIGHT_HOST_PLATFORM_OVERRIDE does NOT fix this: it selects which
+# browser *binary* to download, not which system packages to install, and
+# setting it additionally disables upstream's own retry path. Tried, does
+# not work.
+#
+# The dependencies themselves are ordinary shared libraries that
+# ubuntu-desktop already pulls in, so the browser-only install
+# (no --with-deps) is the working path here.
 HERMES_SKIP_BROWSER="${HERMES_SKIP_BROWSER:-0}"
 
-hermes_args="--hermes-home $HERMES_HOME --skip-setup --non-interactive"
-if [ "$HERMES_SKIP_BROWSER" = "1" ]; then
-    hermes_args="$hermes_args --skip-browser"
-    echo "  skipping the agent's headless browser (HERMES_SKIP_BROWSER=1)"
-fi
+hermes_args="--hermes-home $HERMES_HOME --skip-setup --non-interactive --skip-browser"
 
 in_chroot "
-    export PLAYWRIGHT_HOST_PLATFORM_OVERRIDE='$PLAYWRIGHT_PLATFORM'
     curl -fsSL https://hermes-agent.nousresearch.com/install.sh \
         | bash -s -- $hermes_args
 "
+
 
 # Pin to the tested revision. The installer tracks upstream's default
 # branch, so without this two builds a week apart ship different agents
@@ -186,6 +188,31 @@ actual_ref="$(in_chroot "git -C '$HERMES_CODE_DIR' describe --tags --exact-match
                         || git -C '$HERMES_CODE_DIR' rev-parse --short HEAD")"
 [ "$actual_ref" = "$HERMES_REF" ] || die "agent runtime is at '$actual_ref', expected '$HERMES_REF'"
 echo "  hermes revision: $actual_ref"
+
+# ---------------------------------------------------------------------------
+# The agent's headless browser
+# ---------------------------------------------------------------------------
+# Installed here rather than by the installer above, and deliberately
+# AFTER the revision pin so it resolves against the checkout that ships.
+#
+# No --with-deps: that is the flag that hangs. The system libraries it
+# would install are ordinary shared objects ubuntu-desktop already
+# provides, so the browser-only install is both sufficient and safe.
+#
+# A failure costs the agent's web tools and nothing else, so it warns
+# rather than failing the whole build.
+if [ "$HERMES_SKIP_BROWSER" = "1" ]; then
+    echo "  agent browser: skipped (HERMES_SKIP_BROWSER=1)"
+elif in_chroot "
+        cd '$HERMES_CODE_DIR'
+        PLAYWRIGHT_BROWSERS_PATH='$HERMES_HOME/.playwright' \
+            npx --yes playwright install chromium
+     " >/dev/null 2>&1; then
+    echo "  agent browser: chromium installed"
+else
+    echo "  agent browser: FAILED -- the agent's web tools will not work," >&2
+    echo "                 everything else is unaffected." >&2
+fi
 
 in_chroot "chown -R $HERMES_USER:$HERMES_USER $HERMES_HOME"
 
