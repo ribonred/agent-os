@@ -43,14 +43,19 @@ usage() {
     cat <<EOF
 usage: sudo $0 [options]
 
-  --user NAME   the device owner's account  (default: $DEVICE_USER)
-  --ui PATH     Tauri shell binary to install (default: $UI_BUNDLE)
-  --no-ui       provision without the assistant UI
-  --key PATH    GitHub-registered SSH key for the agent-runtime clone
-  -h, --help    this message
+  --user NAME    the device owner's account  (default: $DEVICE_USER)
+  --ui PATH      Tauri shell binary to install (default: $UI_BUNDLE)
+  --no-ui        provision without the assistant UI
+  --key PATH     GitHub-registered SSH key for the agent-runtime clone
+  --no-ollama    skip Ollama (~1.4GB); llama.cpp still provides local
+                 inference
+  --no-browser   skip the browser
+  -h, --help     this message
 
-Environment: OLLAMA_SKIP=1 and BROWSER_SKIP=1 behave as in the container
-build.
+The OLLAMA_SKIP=1 and BROWSER_SKIP=1 environment variables work too, but
+ONLY if they survive sudo -- \`OLLAMA_SKIP=1 sudo $0\` silently does not,
+because sudo strips the environment. Use the flags, or
+\`sudo OLLAMA_SKIP=1 $0\`.
 
 Run this on a freshly installed Ubuntu 26.04 Desktop machine. It
 installs and configures everything the device needs; it does not
@@ -64,6 +69,8 @@ while [ $# -gt 0 ]; do
         --ui)   UI_BUNDLE="$2"; shift 2 ;;
         --no-ui) UI_BUNDLE=""; shift ;;
         --key)  HERMES_SSH_KEY="$2"; shift 2 ;;
+        --no-ollama)  OLLAMA_SKIP=1; shift ;;
+        --no-browser) BROWSER_SKIP=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "unknown option: $1" >&2; usage >&2; exit 1 ;;
     esac
@@ -101,6 +108,8 @@ cat <<EOF
   system:  ${PRETTY_NAME:-unknown}
   owner:   $DEVICE_USER
   UI:      ${UI_BUNDLE:-<none>}
+  ollama:  $([ "$OLLAMA_SKIP" = 1 ] && echo "skipped" || echo "INSTALL (~1.4GB download)")
+  browser: $([ "$BROWSER_SKIP" = 1 ] && echo "skipped" || echo "google-chrome-stable")
 
   Installs packages, services and the agent runtime, and
   enables autologin. It does NOT touch partitions.
@@ -165,11 +174,15 @@ install -D -m 755 "$BUILD_DIR/rootfs-overlay/usr/local/sbin/agentic-firstboot" \
 systemctl daemon-reload
 systemctl enable agentic-firstboot.service
 
-# On this machine the unit has already "run" in the sense that the
-# machine has an identity. Stamping it now would leave the captured image
-# claiming its per-unit setup was done -- so the stamp is deliberately
-# NOT written here. capture-image.sh removes it along with the rest of
-# the per-unit state.
+# Run it now rather than waiting for a reboot. This is a live machine
+# being provisioned, and without the credentials and identity this writes
+# the agent has no bearer token, no cloud key and its own upstream
+# personality -- which makes the machine untestable until it is rebooted.
+/usr/local/sbin/agentic-firstboot
+
+# The stamp it just wrote says "per-unit setup done" for THIS machine.
+# That is correct here, and capture-image.sh removes it so every unit
+# flashed from an image of this machine runs its own setup on first boot.
 
 # ---------------------------------------------------------------------------
 log "Starting services"
@@ -179,10 +192,12 @@ log "Starting services"
 systemctl restart postgresql redis-server || true
 systemctl start agentic-pg-init || true
 
-if [ -f /etc/agentic-os/hermes.env ]; then
-    systemctl restart hermes-gateway || true
+systemctl restart hermes-gateway || true
+sleep 5
+if systemctl is-active --quiet hermes-gateway; then
+    echo "  gateway: running on 127.0.0.1:8642"
 else
-    echo "  hermes.env not present yet -- the gateway starts after first boot"
+    echo "  gateway: FAILED to start -- journalctl -u hermes-gateway" >&2
 fi
 
 # ---------------------------------------------------------------------------

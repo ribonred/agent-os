@@ -113,28 +113,35 @@ else
     log "no vendor cloud key; the owner supplies one through the interface"
 fi
 
-install -D -m 600 -o root -g root /dev/null "$ENV_FILE"
-{
-    echo "OPENROUTER_API_KEY=$or_key"
-    echo "API_SERVER_KEY=$(head -c 32 /dev/urandom | sha256sum | cut -c1-48)"
-} > "$ENV_FILE"
+# The agent owns this file outright: it runs as the owner, reads
+# $HERMES_HOME/.env directly (get_hermes_home() / ".env"), and is the only
+# thing that needs the credentials. Written there as a plain 0600 file
+# rather than somewhere root-owned -- a `hermes` command run in a terminal
+# has to be able to read it, and a root-owned file with a group ACL only
+# works if the group is active in that shell, which is exactly the
+# "permission denied" this used to produce.
+if [ -n "$HERMES_HOME" ]; then
+    AGENT_ENV="$HERMES_HOME/.env"
+    install -d -m 700 -o "$DEVICE_USER" -g "$DEVICE_USER" "$HERMES_HOME"
+    install -m 600 -o "$DEVICE_USER" -g "$DEVICE_USER" /dev/null "$AGENT_ENV"
+    {
+        echo "OPENROUTER_API_KEY=$or_key"
+        echo "API_SERVER_KEY=$(head -c 32 /dev/urandom | sha256sum | cut -c1-48)"
+    } > "$AGENT_ENV"
 
-# The UI shell and the agent both read this file to find the bearer
-# token, and both run as the owner rather than as root.
-if [ -n "$DEVICE_USER" ]; then
-    chgrp "$DEVICE_USER" "$ENV_FILE"
-    chmod 640 "$ENV_FILE"
-
-    # The agent reads $HERMES_HOME/.env directly -- systemd's
-    # EnvironmentFile only covers the gateway service, so a `hermes`
-    # command run in a terminal would otherwise find no key and no
-    # credentials at all. Linked rather than copied so the per-unit
-    # token has exactly one source of truth.
-    if [ -n "$HERMES_HOME" ] && [ ! -e "$HERMES_HOME/.env" ]; then
-        install -d -m 700 -o "$DEVICE_USER" -g "$DEVICE_USER" "$HERMES_HOME"
-        ln -sfn "$ENV_FILE" "$HERMES_HOME/.env"
-        chown -h "$DEVICE_USER:$DEVICE_USER" "$HERMES_HOME/.env"
-    fi
+    # systemd's EnvironmentFile= cannot expand a home directory, so the
+    # unit points at a fixed path. Linked, not copied: one per-unit token,
+    # one file, no chance of the two drifting apart.
+    install -d -m 755 "$(dirname "$ENV_FILE")"
+    ln -sfn "$AGENT_ENV" "$ENV_FILE"
+else
+    # No owner account resolved -- write the file the service reads so the
+    # gateway can still authenticate, even though the CLI will not see it.
+    install -D -m 600 -o root -g root /dev/null "$ENV_FILE"
+    {
+        echo "OPENROUTER_API_KEY=$or_key"
+        echo "API_SERVER_KEY=$(head -c 32 /dev/urandom | sha256sum | cut -c1-48)"
+    } > "$ENV_FILE"
 fi
 
 # --- machine-id ------------------------------------------------------------

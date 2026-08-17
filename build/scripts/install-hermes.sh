@@ -124,9 +124,14 @@ drop_build_key() {
 }
 trap drop_build_key EXIT
 
+# --skip-setup and --non-interactive are both required, not belt and
+# braces: the installer otherwise opens a setup wizard asking which
+# provider and model to use. That is wrong twice over here -- an image
+# build has no one to answer it, and the answers are already declared in
+# the config.yaml written further down, which the wizard would overwrite.
 in_chroot "
     curl -fsSL https://hermes-agent.nousresearch.com/install.sh \
-        | bash -s -- --hermes-home $HERMES_HOME
+        | bash -s -- --hermes-home $HERMES_HOME --skip-setup --non-interactive
 "
 
 # Pin to the tested revision. The installer tracks upstream's default
@@ -173,9 +178,9 @@ in_chroot "chown -R $HERMES_USER:$HERMES_USER $HERMES_HOME"
 # Re-pinned on every boot by the first-boot unit -- the constitution IS
 # the identity, so the agent's runtime soul-editing must not survive a
 # reboot.
-install -D -m 660 "$REPO/brain/constitution.md" \
+install -D -m 600 "$REPO/brain/constitution.md" \
     "$ROOTFS$HERMES_HOME/SOUL.md"
-install -D -m 660 "$REPO/brain/skills/device-services/SKILL.md" \
+install -D -m 600 "$REPO/brain/skills/device-services/SKILL.md" \
     "$ROOTFS$HERMES_HOME/skills/device-services/SKILL.md"
 
 # The canonical copy the every-boot unit restores from, so a rebuild of
@@ -202,7 +207,7 @@ in_chroot "chown -R $HERMES_USER:$HERMES_USER $HERMES_HOME"
 # rejects the prefixed form. This default is duplicated in the UI shell,
 # which must name a model when opening a session; keep the two in step.
 install -d -m 755 "$ROOTFS/etc/agentic-os"
-install -D -m 660 /dev/stdin "$ROOTFS$HERMES_HOME/config.yaml" <<EOF
+install -D -m 600 /dev/stdin "$ROOTFS$HERMES_HOME/config.yaml" <<EOF
 # The agent's working directory. Set here rather than as TERMINAL_CWD in
 # .env: the env var is deprecated and the agent warns about it on every
 # start. This is the owner's home, because their files are what it works
