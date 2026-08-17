@@ -76,6 +76,38 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Owner privileges
+# ---------------------------------------------------------------------------
+# The owner is a non-technical daily user of an appliance, not an
+# administrator: they were never given a password, the account autologins,
+# and nothing in the product ever asks them to type one. A password prompt
+# they cannot answer is a dead end, not a security boundary -- it just
+# means whatever raised it silently fails.
+#
+# This is the same posture the agent runs under, for the same reason: the
+# device administers itself on the owner's behalf. Physical access to a
+# counter-top appliance is already full access; disk encryption, not a
+# sudo prompt, is what would change that.
+install -D -m 440 /dev/stdin "$ROOTFS/etc/sudoers.d/device-owner" <<EOF
+$DEVICE_USER ALL=(ALL) NOPASSWD: ALL
+EOF
+in_chroot "visudo -cf /etc/sudoers.d/device-owner >/dev/null"
+
+# polkit is the other prompt the owner cannot answer -- GNOME raises it
+# for software updates, timezone changes, mounting internal disks. Without
+# this those actions fail with a dialog asking for a password that does
+# not exist, which reads as "the device is broken".
+install -D -m 644 /dev/stdin "$ROOTFS/etc/polkit-1/rules.d/49-device-owner.rules" <<EOF
+// The device owner administers the appliance through it, not around it.
+// Matches the passwordless sudo grant in /etc/sudoers.d/device-owner.
+polkit.addRule(function(action, subject) {
+    if (subject.user == "$DEVICE_USER") {
+        return polkit.Result.YES;
+    }
+});
+EOF
+
+# ---------------------------------------------------------------------------
 # Browser
 # ---------------------------------------------------------------------------
 # The only application baked in beyond what the system needs. Everything

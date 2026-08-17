@@ -79,7 +79,41 @@ several GB. Write to external storage instead:
   sudo mkdir -p /mnt/usb
   sudo mount /dev/sdX1 /mnt/usb            # NOT the disk being imaged
   sudo $0 --disk $DISK --out /mnt/usb/agentic-os.img" ;;
+    iso9660|udf)
+        die "$OUT_DIR is a read-only disc filesystem ($out_fstype).
+This is what a USB written in DD/raw mode looks like -- the whole medium
+is the ISO image and nothing can be written to it. Use a second USB
+drive for the capture, or rewrite the boot stick in ISO mode (Rufus:
+\"Write in ISO Image mode\"), which leaves a writable partition." ;;
 esac
+
+# Actually try to write, rather than trusting the mount flags: a stick
+# can be mounted rw and still fail on a hardware write-protect switch or
+# a filesystem the kernel silently downgraded. Two seconds here saves
+# discovering it at the end of a long capture.
+if ! touch "$OUT_DIR/.capture-write-test" 2>/dev/null; then
+    die "$OUT_DIR is not writable.
+Common causes: the medium was written in DD/raw mode (nothing can be
+written to it), it was unplugged from Windows without ejecting and is
+mounted read-only, or the drive has a physical write-protect switch.
+
+  mount | grep \"\$(findmnt -no TARGET --target '$OUT_DIR')\"
+
+Use a different USB drive, or remount it read-write."
+fi
+rm -f "$OUT_DIR/.capture-write-test"
+
+# FAT32 cannot hold a file over 4GB, and a compressed capture lands
+# uncomfortably close to that. Fail now with the fix rather than partway
+# through the write.
+if [ "$out_fstype" = "vfat" ]; then
+    printf '\033[1;33m  warning: %s is FAT32, which cannot hold a file over 4GB.\n' "$OUT_DIR"
+    printf '  A compressed capture is usually 2-4GB, so this may fail near the end.\n'
+    printf '  Safer: split the output as it is written --\n\n'
+    printf '    dd if=%s bs=4M status=progress \\\n' "$DISK"
+    printf '      | zstd -T0 -19 | split -b 3G - %s.zst.part-\n\n' "$OUT"
+    printf '  and reassemble when flashing with: cat %s.zst.part-* | zstdcat | dd of=<disk>\033[0m\n\n' "$OUT"
+fi
 
 # The destination must also not live on the disk being captured: writing
 # into the source while reading it is both a consistency problem and a

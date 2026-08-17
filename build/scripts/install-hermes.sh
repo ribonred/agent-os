@@ -32,10 +32,22 @@ DEVICE_USER="$3"
 HERMES_REF="${HERMES_REF:-v2026.8.13}"
 HERMES_REPO="${HERMES_REPO:-https://github.com/NousResearch/hermes-agent.git}"
 
-# The agent runs as its own system user, not as the owner. It needs to
-# write the owner's files, which is what the shared 'users' group is for.
-HERMES_USER=hermes
-HERMES_HOME=/var/lib/hermes
+# The agent runs AS the owner, not as a separate service account.
+#
+# The device is a single-user appliance: the owner's files are the only
+# files, and everything the agent does is on their behalf. A separate
+# account bought nothing here and cost a great deal -- every file the
+# agent created needed group-writability to stay openable by the owner,
+# the agent's own state landed somewhere the owner could not see, and
+# desktop-session resources (the GPU, the keyring, the display) were
+# granted to the owner's session and invisible to the service.
+#
+# HERMES_HOME therefore follows the upstream default relative to that
+# account: ~/.hermes, exactly as an interactive `hermes` install uses.
+HERMES_USER="$DEVICE_USER"
+HERMES_HOME="/home/$DEVICE_USER/.hermes"
+
+die() { printf '\033[1;31merror: %s\033[0m\n' "$*" >&2; exit 1; }
 
 in_chroot() {
     chroot "$ROOTFS" /usr/bin/env -i \
@@ -48,30 +60,18 @@ in_chroot() {
 # ---------------------------------------------------------------------------
 # Account
 # ---------------------------------------------------------------------------
-# In 'users' so it can write the owner's files, and in 'sudo' to match the
-# sudoers rule below.
-in_chroot "
-    id -u $HERMES_USER >/dev/null 2>&1 || \
-        useradd --system --create-home --home-dir $HERMES_HOME \
-                --shell /bin/bash --groups users,sudo $HERMES_USER
-"
+# Nothing to create: the agent runs as the owner, whose account already
+# exists. Its passwordless sudo comes from the same grant the owner has
+# (install-desktop.sh) -- the device administers itself on their behalf,
+# and a narrow allowlist was rejected because an appliance that hits a
+# wall on every unforeseen admin task is not the self-running product.
+# The approval gate inside the agent is the safety boundary here, not the
+# sudoers file.
+in_chroot "id -u '$HERMES_USER' >/dev/null 2>&1" \
+    || die "device owner '$HERMES_USER' does not exist -- create it before installing the agent"
 
-# The device runs itself on behalf of a non-technical owner, so the agent
-# gets passwordless sudo. A narrow allowlist was rejected: an appliance
-# that hits a wall on every unforeseen admin task is not the self-running
-# product. The approval gate inside the agent is the safety boundary
-# here, not the sudoers file.
-install -D -m 440 /dev/stdin "$ROOTFS/etc/sudoers.d/hermes" <<EOF
-$HERMES_USER ALL=(ALL) NOPASSWD:SETENV: ALL
-EOF
-in_chroot "visudo -cf /etc/sudoers.d/$HERMES_USER >/dev/null"
-
-# The owner's home must stay group-writable so the agent can work in it
-# without taking ownership of it.
-in_chroot "
-    chgrp users /home/$DEVICE_USER
-    chmod 775 /home/$DEVICE_USER
-"
+install -d -m 700 -o "$HERMES_USER" -g "$HERMES_USER" "$ROOTFS$HERMES_HOME" 2>/dev/null \
+    || in_chroot "install -d -m 700 -o '$HERMES_USER' -g '$HERMES_USER' '$HERMES_HOME'"
 
 # ---------------------------------------------------------------------------
 # Install
@@ -164,14 +164,19 @@ in_chroot "chown -R $HERMES_USER:$HERMES_USER $HERMES_HOME"
 # Identity and skills
 # ---------------------------------------------------------------------------
 # Identity does NOT go through the workspace: hermes reads it from
-# $HERMES_HOME/.hermes/SOUL.md. Installed as a plain file here, and
-# re-pinned on every boot by the first-boot/every-boot unit -- the
-# constitution IS the identity, so the agent's runtime soul-editing must
-# not survive a reboot.
+# $HERMES_HOME/SOUL.md -- directly in the home, NOT in a .hermes/
+# subdirectory. An earlier version wrote to $HERMES_HOME/.hermes/, which
+# the agent never reads: the constitution and the device skill were both
+# present on disk and silently unused, so the shipped agent ran with its
+# upstream identity instead of ours.
+#
+# Re-pinned on every boot by the first-boot unit -- the constitution IS
+# the identity, so the agent's runtime soul-editing must not survive a
+# reboot.
 install -D -m 660 "$REPO/brain/constitution.md" \
-    "$ROOTFS$HERMES_HOME/.hermes/SOUL.md"
+    "$ROOTFS$HERMES_HOME/SOUL.md"
 install -D -m 660 "$REPO/brain/skills/device-services/SKILL.md" \
-    "$ROOTFS$HERMES_HOME/.hermes/skills/device-services/SKILL.md"
+    "$ROOTFS$HERMES_HOME/skills/device-services/SKILL.md"
 
 # The canonical copy the every-boot unit restores from, so a rebuild of
 # the identity does not require the repo to be present on the device.
@@ -180,19 +185,34 @@ install -D -m 644 "$REPO/brain/constitution.md" \
 install -D -m 644 "$REPO/brain/skills/device-services/SKILL.md" \
     "$ROOTFS/usr/local/share/agentic-os/skills/device-services/SKILL.md"
 
-in_chroot "chown -R $HERMES_USER:$HERMES_USER $HERMES_HOME/.hermes"
+in_chroot "chown -R $HERMES_USER:$HERMES_USER $HERMES_HOME"
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-# Non-secret switches only -- this file is world-readable. Secrets live in
-# /etc/agentic-os/hermes.env, written per unit at first boot.
+# Written to $HERMES_HOME/config.yaml, which is the ONLY path the agent
+# reads (`get_hermes_home() / "config.yaml"`). An earlier version put this
+# at /etc/agentic-os/hermes-config.yaml, where nothing ever loaded it --
+# the model, memory and approval settings below all silently did nothing.
+#
+# Non-secret switches only. Secrets live in /etc/agentic-os/hermes.env,
+# written per unit at first boot.
 #
 # Bare OpenRouter model id, NOT "openrouter/vendor/model" -- OpenRouter
 # rejects the prefixed form. This default is duplicated in the UI shell,
 # which must name a model when opening a session; keep the two in step.
 install -d -m 755 "$ROOTFS/etc/agentic-os"
-install -D -m 644 /dev/stdin "$ROOTFS/etc/agentic-os/hermes-config.yaml" <<'EOF'
+install -D -m 660 /dev/stdin "$ROOTFS$HERMES_HOME/config.yaml" <<EOF
+# The agent's working directory. Set here rather than as TERMINAL_CWD in
+# .env: the env var is deprecated and the agent warns about it on every
+# start. This is the owner's home, because their files are what it works
+# on -- see the environment hint in the service unit.
+terminal:
+  cwd: /home/$DEVICE_USER
+
+EOF
+
+cat >> "$ROOTFS$HERMES_HOME/config.yaml" <<'EOF'
 model:
   provider: openrouter
   default: deepseek/deepseek-v4-flash-0731
@@ -221,6 +241,10 @@ approvals:
     - "*cloud-keys.toml*"
 EOF
 
+# The agent runs as its own user and must be able to read -- and rewrite,
+# when the owner changes something through it -- its own config.
+in_chroot "chown $HERMES_USER:$HERMES_USER '$HERMES_HOME/config.yaml'"
+
 # ---------------------------------------------------------------------------
 # Service
 # ---------------------------------------------------------------------------
@@ -231,9 +255,8 @@ EOF
 # No systemd sandboxing, deliberately. The agent administers this device,
 # so the sandbox has to be off rather than merely loosened:
 # NoNewPrivileges makes the kernel refuse setuid escalation, so sudo
-# cannot elevate; ProtectSystem and ReadWritePaths would keep the
-# filesystem read-only outside its own state directory, leaving it unable
-# to write the owner's files even as root.
+# cannot elevate, and ProtectHome would hide the very files it exists to
+# work on.
 install -D -m 644 /dev/stdin "$ROOTFS/etc/systemd/system/hermes-gateway.service" <<EOF
 [Unit]
 Description=Hermes Agent gateway (device session API)
@@ -252,7 +275,7 @@ Environment=API_SERVER_HOST=127.0.0.1
 Environment=API_SERVER_PORT=8642
 # The appliance boundary, stated at the same layer where host facts are
 # injected: the agent uses the OS, the owner uses the device.
-Environment=HERMES_ENVIRONMENT_HINT="Treat the host operating system and its package/configuration machinery as internal appliance implementation details. Use them silently when operating the device. Do not volunteer or narrate Linux, Ubuntu, packages, services, or system configuration to the owner. Describe outcomes in terms of the device and the owner's task. If the owner explicitly asks for technical details, answer accurately in plain language.\\n\\nYou administer this device and have full read/write access to it, including root via sudo. If something appears to fail on permissions, it is a real error worth reporting -- not a boundary you should assume and work around.\\n\\n/home/$DEVICE_USER is the owner's home and your working directory. Their files live there, and anything you create for them belongs there -- Documents and Downloads already exist. Use $HERMES_HOME only for your own state, never for the owner's work: they cannot see it, and the file view in the interface shows their home."
+Environment=HERMES_ENVIRONMENT_HINT="Treat the host operating system and its package/configuration machinery as internal appliance implementation details. Use them silently when operating the device. Do not volunteer or narrate Linux, Ubuntu, packages, services, or system configuration to the owner. Describe outcomes in terms of the device and the owner's task. If the owner explicitly asks for technical details, answer accurately in plain language.\\n\\nYou administer this device and have full read/write access to it, including root via sudo. If something appears to fail on permissions, it is a real error worth reporting -- not a boundary you should assume and work around.\\n\\n/home/$DEVICE_USER is the owner's home and your working directory. Their files live there, and anything you create for them belongs there -- Documents and Downloads already exist. Keep your own state in $HERMES_HOME and leave the rest of their home to them: it is what the file view in the interface shows, so anything you scatter there is clutter they have to look at."
 
 # Per-unit secrets: API_SERVER_KEY (bearer token) and OPENROUTER_API_KEY
 # (empty when no vendor key was provisioned, in which case the owner
@@ -260,12 +283,14 @@ Environment=HERMES_ENVIRONMENT_HINT="Treat the host operating system and its pac
 EnvironmentFile=/etc/agentic-os/hermes.env
 
 ExecStart=/usr/local/bin/hermes gateway run
-# The owner's files are what the agent works on, so it starts there
-# rather than in a private workspace they cannot see.
+# The owner's files are what the agent works on, so it starts there.
+# Running as that same account, everything it creates is already theirs
+# -- no group-writability juggling needed.
 WorkingDirectory=/home/$DEVICE_USER
-# Files the agent creates must stay openable by the owner. 0007 would
-# close them to everyone outside the group, including the owner.
-UMask=0002
+# GPU access for anything the agent runs: the desktop session gets it
+# from a logind ACL on the active seat, but a system service has no seat
+# and would silently fall back to the CPU.
+SupplementaryGroups=render video
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal

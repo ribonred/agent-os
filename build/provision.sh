@@ -28,7 +28,11 @@ BUILD_DIR="$REPO/build"
 # itself rather than a tree somewhere under it.
 ROOTFS=/
 
-DEVICE_USER="${DEVICE_USER:-$(logname 2>/dev/null || echo "${SUDO_USER:-admin}")}"
+# Defaults to whoever is running this, since on a hand-installed
+# reference machine that is the account created during the Ubuntu
+# install. Falls back to the same name the from-scratch image build uses,
+# so both paths produce a device with the same owner account.
+DEVICE_USER="${DEVICE_USER:-$(logname 2>/dev/null || echo "${SUDO_USER:-admin-agent}")}"
 UI_BUNDLE="${UI_BUNDLE:-$REPO/ui/src-tauri/target/release/ui}"
 
 OLLAMA_SKIP="${OLLAMA_SKIP:-0}"
@@ -134,6 +138,16 @@ log "Agent runtime: Hermes"
 # ---------------------------------------------------------------------------
 HERMES_SSH_KEY="$HERMES_SSH_KEY" \
     "$BUILD_DIR/scripts/install-hermes.sh" "$ROOTFS" "$REPO" "$DEVICE_USER"
+
+# ---------------------------------------------------------------------------
+log "Owner account groups"
+# ---------------------------------------------------------------------------
+# The account already exists here -- it was created by the Ubuntu
+# installer -- so only the group membership the device needs is added.
+# render and video are what let anything outside the desktop session open
+# the GPU; without them a local inference server silently runs on the CPU.
+usermod -aG sudo,audio,video,render,plugdev,users "$DEVICE_USER"
+id -nG "$DEVICE_USER" | tr ' ' '\n' | grep -E '^(render|video|sudo)$' | sed 's/^/  in group: /'
 
 # ---------------------------------------------------------------------------
 log "Desktop session"

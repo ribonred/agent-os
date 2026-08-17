@@ -77,11 +77,23 @@ ConditionPathExists=/var/lib/agentic-os/models/active.gguf
 Type=simple
 User=nobody
 Group=users
+# Without these the process cannot open /dev/dri/renderD128 and every
+# layer silently runs on the CPU -- which looks like a working server
+# answering at a few tokens a second, not like an error. The desktop
+# session gets GPU access from a logind ACL on the active seat; a system
+# service has no seat, so group membership is the only route.
+SupplementaryGroups=render video
+# The Vulkan driver compiles shaders on first use and caches them. With
+# nowhere writable it falls back to recompiling every start, so give it
+# a real directory rather than letting it try $HOME.
+StateDirectory=llama-server
+Environment=XDG_CACHE_HOME=/var/lib/llama-server
 ExecStart=/usr/bin/llama-server \
     --model /var/lib/agentic-os/models/active.gguf \
     --host 127.0.0.1 \
     --port 8080 \
-    --ctx-size 4096
+    --ctx-size 4096 \
+    -ngl 99
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal

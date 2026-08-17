@@ -26,7 +26,11 @@ ARCH="${ARCH:-amd64}"
 
 # The owner's account on the device. Generic on purpose -- this ships to
 # customers, so it must never carry a developer's name.
-DEVICE_USER="${DEVICE_USER:-admin}"
+# Must match the account the capture-from-a-reference-machine path uses
+# (build/provision.sh), or a unit flashed from one image and a unit
+# provisioned by hand end up with different owner accounts -- and every
+# path baked into the agent's config points at the wrong home.
+DEVICE_USER="${DEVICE_USER:-admin-agent}"
 DEVICE_HOSTNAME="${DEVICE_HOSTNAME:-agentic-os}"
 
 # The Tauri shell binary. Optional: without it the image is a complete
@@ -183,11 +187,19 @@ in_chroot "locale-gen en_US.UTF-8 && update-locale LANG=en_US.UTF-8"
 # ---------------------------------------------------------------------------
 log "Creating the device owner account: $DEVICE_USER"
 # ---------------------------------------------------------------------------
-# Decide the auth strategy before this leaves the bench. Do not ship a
-# device with an unauthenticated user -- this password is a placeholder
-# that exists so the account is usable on the bench, nothing more.
+# The owner never types a password: the session autologins, sudo and
+# polkit are passwordless (see install-desktop.sh), and nothing in the
+# product prompts for one. The placeholder below exists only so the
+# account can be used from a console on the bench.
+#
+# render and video are load-bearing, not cosmetic: the desktop session
+# gets GPU access from a logind ACL on the active seat, but anything
+# outside that session -- a local inference server, a headless check --
+# cannot open /dev/dri/renderD128 without them, and silently falls back
+# to running on the CPU.
 in_chroot "
-    useradd --create-home --shell /bin/bash --groups sudo,audio,video,plugdev '$DEVICE_USER'
+    useradd --create-home --shell /bin/bash \
+        --groups sudo,audio,video,render,plugdev,users '$DEVICE_USER'
     echo '$DEVICE_USER:changeme' | chpasswd
     mkdir -p /home/$DEVICE_USER/Documents /home/$DEVICE_USER/Downloads
     chown -R $DEVICE_USER:$DEVICE_USER /home/$DEVICE_USER
