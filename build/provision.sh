@@ -38,6 +38,7 @@ UI_BUNDLE="${UI_BUNDLE:-$REPO/ui/src-tauri/target/release/ui}"
 OLLAMA_SKIP="${OLLAMA_SKIP:-0}"
 BROWSER_SKIP="${BROWSER_SKIP:-0}"
 HERMES_SSH_KEY="${HERMES_SSH_KEY:-}"
+HERMES_SKIP_BROWSER="${HERMES_SKIP_BROWSER:-0}"
 
 usage() {
     cat <<EOF
@@ -50,6 +51,9 @@ usage: sudo $0 [options]
   --no-ollama    skip Ollama (~1.4GB); llama.cpp still provides local
                  inference
   --no-browser   skip the browser
+  --no-agent-browser
+                 skip the agent's headless browser (~300MB Playwright
+                 download); its web tools stop working, nothing else does
   -h, --help     this message
 
 The OLLAMA_SKIP=1 and BROWSER_SKIP=1 environment variables work too, but
@@ -71,6 +75,7 @@ while [ $# -gt 0 ]; do
         --key)  HERMES_SSH_KEY="$2"; shift 2 ;;
         --no-ollama)  OLLAMA_SKIP=1; shift ;;
         --no-browser) BROWSER_SKIP=1; shift ;;
+        --no-agent-browser) HERMES_SKIP_BROWSER=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "unknown option: $1" >&2; usage >&2; exit 1 ;;
     esac
@@ -145,7 +150,7 @@ OLLAMA_SKIP="$OLLAMA_SKIP" "$BUILD_DIR/scripts/install-inference.sh" "$ROOTFS"
 # ---------------------------------------------------------------------------
 log "Agent runtime: Hermes"
 # ---------------------------------------------------------------------------
-HERMES_SSH_KEY="$HERMES_SSH_KEY" \
+HERMES_SSH_KEY="$HERMES_SSH_KEY" HERMES_SKIP_BROWSER="$HERMES_SKIP_BROWSER" \
     "$BUILD_DIR/scripts/install-hermes.sh" "$ROOTFS" "$REPO" "$DEVICE_USER"
 
 # ---------------------------------------------------------------------------

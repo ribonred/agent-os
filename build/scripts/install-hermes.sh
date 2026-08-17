@@ -124,14 +124,38 @@ drop_build_key() {
 }
 trap drop_build_key EXIT
 
+# Playwright has no build for Ubuntu 26.04 yet. Its installer stalls
+# uninterruptibly on an apt release it does not recognise, and upstream's
+# script only recovers after a 600s timeout before retrying with this
+# same override -- so setting it up front turns ten wasted minutes into a
+# working install. The 24.04 build runs correctly on 26.04; Playwright's
+# maintainers document this env var as the supported escape hatch for
+# unrecognised platforms. Remove it once a 26.04 build ships.
+#
 # --skip-setup and --non-interactive are both required, not belt and
 # braces: the installer otherwise opens a setup wizard asking which
-# provider and model to use. That is wrong twice over here -- an image
-# build has no one to answer it, and the answers are already declared in
-# the config.yaml written further down, which the wizard would overwrite.
+# provider and model to use, and its wizard reads /dev/tty directly, so
+# piping the script does NOT suppress it. That is wrong twice over here --
+# an image build has no one to answer it, and the answers are already
+# declared in the config.yaml written further down, which the wizard
+# would overwrite.
+#
+# HERMES_SKIP_BROWSER=1 drops the Playwright/Chromium download entirely
+# (~300MB). The agent's browser tools stop working; everything else is
+# unaffected, and the device still ships a real browser for the owner.
+PLAYWRIGHT_PLATFORM="${PLAYWRIGHT_HOST_PLATFORM_OVERRIDE:-ubuntu24.04-x64}"
+HERMES_SKIP_BROWSER="${HERMES_SKIP_BROWSER:-0}"
+
+hermes_args="--hermes-home $HERMES_HOME --skip-setup --non-interactive"
+if [ "$HERMES_SKIP_BROWSER" = "1" ]; then
+    hermes_args="$hermes_args --skip-browser"
+    echo "  skipping the agent's headless browser (HERMES_SKIP_BROWSER=1)"
+fi
+
 in_chroot "
+    export PLAYWRIGHT_HOST_PLATFORM_OVERRIDE='$PLAYWRIGHT_PLATFORM'
     curl -fsSL https://hermes-agent.nousresearch.com/install.sh \
-        | bash -s -- --hermes-home $HERMES_HOME --skip-setup --non-interactive
+        | bash -s -- $hermes_args
 "
 
 # Pin to the tested revision. The installer tracks upstream's default
