@@ -10,6 +10,16 @@ import { invoke } from "@tauri-apps/api/core";
 
 export type WindowMode = "full" | "minimized";
 
+export type ResizeDirection =
+  | "north"
+  | "south"
+  | "east"
+  | "west"
+  | "north-east"
+  | "north-west"
+  | "south-east"
+  | "south-west";
+
 export function useWindowMode() {
   const mode = useState<WindowMode>("window:mode", () => "full");
   /// Set once a reply has arrived, so the pill stays open long enough to
@@ -52,7 +62,8 @@ export function useWindowMode() {
     }
   }
 
-  /// The pill has no title bar to grab, so its surface is the handle.
+  /// Neither shape has a title bar to grab, so a surface of each one is
+  /// the handle: the pill's orb, and the top of the conversation pane.
   async function drag() {
     try {
       await invoke("window_drag");
@@ -61,5 +72,35 @@ export function useWindowMode() {
     }
   }
 
-  return { mode, holdingOpen, load, set, toggle, expand, drag };
+  /// What double-clicking a title bar does, for a window with no title
+  /// bar to double-click.
+  async function toggleMaximize() {
+    try {
+      await invoke("window_toggle_maximize");
+    } catch {
+      // The window is the size it was; nothing to tell the owner.
+    }
+  }
+
+  /// One edge or corner, handed to the window manager for the duration
+  /// of a press. An undecorated window has no resize border of its own.
+  async function resizeDrag(direction: ResizeDirection) {
+    try {
+      await invoke("window_resize_drag", { direction });
+    } catch {
+      // Same: the window simply stays the size it was.
+    }
+  }
+
+  return {
+    mode,
+    holdingOpen,
+    load,
+    set,
+    toggle,
+    expand,
+    drag,
+    toggleMaximize,
+    resizeDrag,
+  };
 }

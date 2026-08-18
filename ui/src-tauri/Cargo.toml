@@ -26,12 +26,16 @@ tauri-plugin-log = "2.8.0"
 # The facade the plugin routes; used directly wherever the shell has
 # something worth reading in a log rather than showing the owner.
 log = "0.4"
+# For ResizeDirection only. Tauri takes it in the public signature of
+# Window::start_resize_dragging but does not re-export it, so the one
+# way to name that argument is to depend on the crate it comes from.
+tauri-runtime = "2"
 tauri-plugin-store = "2.4.3"
 cloud-key = { path = "../../agent-core/cloud-key" }
 hyper = "1"
 http-body-util = "0.1"
 hyper-util = { version = "0.1", features = ["client-legacy", "http1", "tokio"] }
-tokio = { version = "1", features = ["sync"] }
+tokio = { version = "1", features = ["sync", "time"] }
 gtk = "0.18"
 
 [dev-dependencies]

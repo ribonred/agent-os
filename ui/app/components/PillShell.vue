@@ -145,7 +145,8 @@ async function onSubmit() {
       <button
         type="button"
         class="grow"
-        :aria-label="open ? 'Settle the assistant back' : 'Open the assistant'"
+        aria-label="Back to the full window"
+        title="Back to the full window"
         @click="toggle()"
       >
         ⤢

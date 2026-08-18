@@ -231,15 +231,23 @@ in_chroot "chown -R $HERMES_USER:$HERMES_USER $HERMES_HOME"
 # reboot.
 install -D -m 600 "$REPO/brain/constitution.md" \
     "$ROOTFS$HERMES_HOME/SOUL.md"
-install -D -m 600 "$REPO/brain/skills/device-services/SKILL.md" \
-    "$ROOTFS$HERMES_HOME/skills/device-services/SKILL.md"
+for skill_dir in "$REPO/brain/skills"/*/; do
+    [ -d "$skill_dir" ] || continue
+    name="$(basename "$skill_dir")"
+    install -D -m 600 "$skill_dir/SKILL.md" \
+        "$ROOTFS$HERMES_HOME/skills/$name/SKILL.md"
+done
 
 # The canonical copy the every-boot unit restores from, so a rebuild of
 # the identity does not require the repo to be present on the device.
 install -D -m 644 "$REPO/brain/constitution.md" \
     "$ROOTFS/usr/local/share/agentic-os/constitution.md"
-install -D -m 644 "$REPO/brain/skills/device-services/SKILL.md" \
-    "$ROOTFS/usr/local/share/agentic-os/skills/device-services/SKILL.md"
+for skill_dir in "$REPO/brain/skills"/*/; do
+    [ -d "$skill_dir" ] || continue
+    name="$(basename "$skill_dir")"
+    install -D -m 644 "$skill_dir/SKILL.md" \
+        "$ROOTFS/usr/local/share/agentic-os/skills/$name/SKILL.md"
+done
 
 in_chroot "chown -R $HERMES_USER:$HERMES_USER $HERMES_HOME"
 

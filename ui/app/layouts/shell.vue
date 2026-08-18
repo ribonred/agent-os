@@ -27,6 +27,10 @@ async function setCollapsed(value: boolean) {
 <template>
   <PillShell v-if="mode === 'minimized'" />
   <div v-else class="shell">
+    <!-- The window has no decoration, so it draws its own resize
+         border. The pill has none: it sizes itself to what there is to
+         read, and a hand-resized pill would fight that. -->
+    <WindowEdges />
     <ConversationPane
       :collapsed="collapsed"
       @update:collapsed="setCollapsed"

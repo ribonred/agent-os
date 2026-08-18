@@ -23,7 +23,22 @@ const {
   answerApproval,
   stop,
 } = useConversation();
-const { set: setWindowMode } = useWindowMode();
+const { set: setWindowMode, drag, toggleMaximize } = useWindowMode();
+
+// The top of the pane is this window's title bar, because the window
+// does not have one: dragging it moves the window, and double-clicking
+// fills the screen or gives it back. Both are ignored on the controls
+// themselves, so the buttons still behave like buttons.
+function onChromeMouseDown(event: MouseEvent) {
+  if ((event.target as HTMLElement)?.closest("button, a")) return;
+  if (event.detail > 1) return;
+  drag();
+}
+
+function onChromeDoubleClick(event: MouseEvent) {
+  if ((event.target as HTMLElement)?.closest("button, a")) return;
+  toggleMaximize();
+}
 const scroller = ref<HTMLElement | null>(null);
 
 // The placeholder says what pressing Enter will do, so a selected file
@@ -97,7 +112,7 @@ async function onPick(option: string) {
     </template>
 
     <template v-else>
-      <header>
+      <header @mousedown="onChromeMouseDown" @dblclick="onChromeDoubleClick">
         <PresenceOrb :size="56" :orb-state="orbState" />
         <div class="controls">
           <!-- Reachable but quiet, like the desktop underneath: there is

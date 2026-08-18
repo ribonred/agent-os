@@ -63,10 +63,13 @@ in Python.
 
 ## Shipped skills
 
-Only `brain/skills/` is installed onto the unit (today:
-`device-services`). First-boot copies each `SKILL.md` into
-`$HERMES_HOME/skills/<name>/` and into
-`/usr/local/share/agentic-os/skills/`.
+Only `brain/skills/` is installed onto the unit (all folders ship:
+`device-services`, `device-apps`, `owner-files`, `business-records`,
+`document-ingest`, `confirm-before-harm`). First-boot copies each
+`SKILL.md` into `$HERMES_HOME/skills/<name>/` and into
+`/usr/local/share/agentic-os/skills/`. The image installer (`install-hermes.sh`)
+glob-copies every `brain/skills/*/` folder, so a new skill must live there
+to ship — it needs no per-skill entry once the glob is in place.
 
 A shipped skill must:
 

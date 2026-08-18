@@ -47,7 +47,7 @@ pub fn run() {
             // starting full and shrinking to a pill a moment later is a
             // visible flinch on every launch.
             let mode = window_mode::current(app.handle());
-            if let Err(error) = window_mode::apply(app.handle(), mode) {
+            if let Err(error) = window_mode::apply(app.handle(), mode, mode) {
                 // Not fatal: a window that ignored one geometry call is
                 // still a usable window, and the owner can switch modes.
                 log::warn!("could not restore the window mode: {error}");
@@ -90,6 +90,8 @@ pub fn run() {
             window_mode::window_mode_set,
             window_mode::window_pill_expand,
             window_mode::window_drag,
+            window_mode::window_toggle_maximize,
+            window_mode::window_resize_drag,
             dev::dev_reset_setup,
             shelf::shelf_list
         ])
