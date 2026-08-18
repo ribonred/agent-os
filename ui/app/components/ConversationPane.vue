@@ -175,12 +175,12 @@ async function onPick(option: string) {
       <ContextChip />
 
       <form @submit.prevent="onSubmit">
-        <input
+        <ChatInput
           v-model="input"
-          type="text"
+          variant="pane"
           :placeholder="hasContext ? 'Ask about this…' : 'Say something…'"
           :disabled="busy || daemonError !== null"
-          autocomplete="off"
+          @submit="onSubmit"
         />
         <!-- Only while there is something to interrupt: a control that
              does nothing most of the time is one the owner learns to
@@ -263,7 +263,8 @@ header {
 }
 
 .conversation {
-  flex: 1;
+  flex: 1 1 0;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -301,31 +302,12 @@ header {
 }
 
 form {
+  flex: 0 0 auto;
+  min-width: 0;
   padding: 0 1.5rem;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 0.5rem;
-}
-
-input {
-  flex: 1;
-  min-width: 0;
-  background: var(--surface);
-  color: var(--text-primary);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 12px;
-  padding: 0.9rem 1.1rem;
-  font-family: var(--font-family);
-  font-size: 0.98rem;
-}
-
-input:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-input:disabled {
-  opacity: 0.55;
 }
 
 .stop {

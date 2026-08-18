@@ -73,8 +73,8 @@ including the pill.
   Afterward, collapse to one line of what they chose.
 - Answer chips: at most four, recommended first, after the reply
   has finished. Typing always still works.
-- One input, send on Enter. No toolbar, attach button, file picker,
-  or model picker.
+- One input. Enter sends; Shift+Enter is a new line. No toolbar,
+  attach button, file picker, or model picker.
 - Context is a selection chip above the input, cleared on send.
 
 ## Setup

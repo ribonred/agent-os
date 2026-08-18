@@ -134,12 +134,12 @@ async function onSubmit() {
         <PresenceOrb :size="34" :orb-state="orbState" />
       </button>
 
-      <input
+      <ChatInput
         v-model="input"
-        type="text"
+        variant="pill"
         placeholder="Say something…"
         :disabled="busy || daemonError !== null"
-        autocomplete="off"
+        @submit="onSubmit"
       />
 
       <button
@@ -203,25 +203,6 @@ async function onSubmit() {
 
 .grip:active {
   cursor: grabbing;
-}
-
-input {
-  flex: 1;
-  min-width: 0;
-  background: none;
-  border: none;
-  color: var(--text-primary);
-  font-family: var(--font-family);
-  font-size: 0.95rem;
-  padding: 0.5rem 0.2rem;
-}
-
-input:focus {
-  outline: none;
-}
-
-input:disabled {
-  opacity: 0.55;
 }
 
 .grow {

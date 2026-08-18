@@ -306,9 +306,18 @@ chat app skin:
   They appear only once the reply is complete; a half-arrived question
   flickering into buttons is worse than waiting a beat for them.
 - **One input, one action.** A single quiet input bar pinned at the
-  bottom, send on Enter. No toolbar, no attach button, no file picker,
-  no model picker -- routing is the device's decision
-  (constitution.md discloses it only on request).
+  bottom. Enter sends; Shift+Enter starts a new line, so a list or a
+  pasted paragraph can be written as it will be read. No toolbar, no
+  attach button, no file picker, no model picker -- routing is the
+  device's decision (constitution.md discloses it only on request).
+
+  The bar itself is still one control. In the conversation pane and in
+  setup it grows with the words, up to about six lines, then scrolls.
+  The floating pill keeps the same keys but stays one line tall -- extra
+  lines scroll inside the bar rather than growing the window, because
+  the pill is meant to sit on top of other work, not become a second
+  conversation pane. The naming screen stays a single line: a name is
+  one line.
 - **Context comes from selection, not from attaching.** Selecting a file
   places one quiet `--surface` chip directly above the input naming what
   was selected, with a single dismiss control. The next message carries

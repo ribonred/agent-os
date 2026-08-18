@@ -137,13 +137,13 @@ onMounted(async () => {
     </section>
 
     <form v-if="!finished" @submit.prevent="onSubmit">
-      <input
+      <ChatInput
         v-model="input"
-        type="text"
+        variant="setup"
         placeholder="Your answer…"
         :disabled="busy || daemonError !== null"
-        autocomplete="off"
         autofocus
+        @submit="onSubmit"
       />
     </form>
     <NuxtLink
@@ -214,25 +214,9 @@ form {
   padding: 0 1.5rem;
 }
 
-input {
-  width: 100%;
-  background: var(--surface);
-  color: var(--text-primary);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 12px;
-  padding: 0.9rem 1.1rem;
-  font-family: var(--font-family);
-  font-size: 0.98rem;
-}
-
-input:focus-visible,
 .continue:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-}
-
-input:disabled {
-  opacity: 0.55;
 }
 
 .continue {
