@@ -4470,6 +4470,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "log",
  "serde",
  "serde_json",
  "tauri",

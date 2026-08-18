@@ -10,8 +10,14 @@
 import { firstIncompleteSetupStep } from "~/lib/setupStore";
 
 const route = useRoute();
+const { load: loadWindowMode } = useWindowMode();
 
 onMounted(async () => {
+  // Which shape the window is in is decided natively before anything
+  // paints; this only reads it back so the layout renders the matching
+  // one instead of a full shell squeezed into a pill for a frame.
+  await loadWindowMode();
+
   // Pin the webview zoom explicitly. On the device's bare kiosk
   // compositor no settings daemon exists, GTK's screen resolution stays
   // at its -1 "unknown" sentinel, and WebKitGTK turns that into an

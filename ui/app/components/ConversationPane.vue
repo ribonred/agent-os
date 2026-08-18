@@ -7,11 +7,23 @@
 // never removed from the screen, because a screen with no orb reads as a
 // device that is switched off.
 
+import { parseReply, streamingText } from "~/lib/chatProtocol";
+
 const { collapsed = false } = defineProps<{ collapsed?: boolean }>();
 const emit = defineEmits<{ "update:collapsed": [value: boolean] }>();
 
-const { entries, input, busy, daemonError, orbState, connect, send } =
-  useConversation();
+const {
+  entries,
+  input,
+  busy,
+  daemonError,
+  orbState,
+  connect,
+  send,
+  answerApproval,
+  stop,
+} = useConversation();
+const { set: setWindowMode } = useWindowMode();
 const scroller = ref<HTMLElement | null>(null);
 
 // The placeholder says what pressing Enter will do, so a selected file
@@ -20,6 +32,30 @@ const { items: contextItems } = useContext();
 const hasContext = computed(() => contextItems.value.length > 0);
 
 onMounted(connect);
+
+/// The answers offered with the reply the owner is looking at -- only
+/// the last one, and only once it has finished arriving. A half-written
+/// question flickering into buttons is worse than waiting a beat.
+const lastAssistant = computed(() => {
+  for (let i = entries.value.length - 1; i >= 0; i -= 1) {
+    const turn = entries.value[i];
+    if (turn?.kind === "assistant") return turn;
+    if (turn?.kind === "user") return null;
+  }
+  return null;
+});
+
+const options = computed(() =>
+  busy.value || !lastAssistant.value
+    ? []
+    : parseReply(lastAssistant.value.content).options,
+);
+
+/// Mid-stream the trailer is hidden as it types itself; once the turn is
+/// done it is gone entirely and its contents are chips instead.
+function bodyText(content: string) {
+  return busy.value ? streamingText(content) : parseReply(content).text;
+}
 
 async function autoscroll() {
   await nextTick();
@@ -30,8 +66,18 @@ async function autoscroll() {
 // follows the stream from here rather than reaching back the other way.
 watch(entries, autoscroll, { deep: true });
 
+// The answers to tap only appear once the turn is complete, which is
+// after the last entry changed -- without this they render below the
+// fold and the owner never sees they had a choice.
+watch(options, autoscroll);
+
 async function onSubmit() {
   await send();
+  await autoscroll();
+}
+
+async function onPick(option: string) {
+  await send(option);
   await autoscroll();
 }
 </script>
@@ -53,15 +99,32 @@ async function onSubmit() {
     <template v-else>
       <header>
         <PresenceOrb :size="56" :orb-state="orbState" />
-        <button
-          type="button"
-          class="collapse"
-          aria-label="Hide the conversation"
-          :aria-expanded="true"
-          @click="emit('update:collapsed', true)"
-        >
-          ‹
-        </button>
+        <div class="controls">
+          <!-- Reachable but quiet, like the desktop underneath: there is
+               no settings system here, only the few things the owner
+               decides rather than asks for. -->
+          <NuxtLink to="/settings" class="icon" aria-label="Settings">
+            ⚙
+          </NuxtLink>
+          <button
+            type="button"
+            class="icon"
+            aria-label="Keep the assistant to hand"
+            title="Keep the assistant to hand"
+            @click="setWindowMode('minimized')"
+          >
+            ⤡
+          </button>
+          <button
+            type="button"
+            class="icon"
+            aria-label="Hide the conversation"
+            :aria-expanded="true"
+            @click="emit('update:collapsed', true)"
+          >
+            ‹
+          </button>
+        </div>
       </header>
 
       <section ref="scroller" class="conversation" aria-live="polite">
@@ -69,11 +132,29 @@ async function onSubmit() {
         <p v-else-if="entries.length === 0" class="empty">Ask me anything.</p>
         <template v-for="(entry, index) in entries" :key="index">
           <p v-if="entry.kind === 'user'" class="user">{{ entry.content }}</p>
-          <p v-else-if="entry.kind === 'assistant'" class="assistant">
+          <MessageBody
+            v-else-if="entry.kind === 'assistant' && entry.content !== ''"
+            :text="bodyText(entry.content)"
+          />
+          <ToolRow
+            v-else-if="entry.kind === 'tool'"
+            :summary="entry.summary"
+            :phase="entry.phase"
+          />
+          <ApprovalCard
+            v-else-if="entry.kind === 'approval'"
+            :description="entry.description"
+            :command="entry.command"
+            :choices="entry.choices"
+            :answer="entry.answer"
+            @answer="(choice) => answerApproval(entry, choice)"
+          />
+          <p v-else-if="entry.kind === 'error'" class="error" role="alert">
             {{ entry.content }}
           </p>
-          <p v-else class="error" role="alert">{{ entry.content }}</p>
         </template>
+
+        <OptionChips :options="options" :disabled="busy" @pick="onPick" />
       </section>
 
       <ContextChip />
@@ -86,6 +167,12 @@ async function onSubmit() {
           :disabled="busy || daemonError !== null"
           autocomplete="off"
         />
+        <!-- Only while there is something to interrupt: a control that
+             does nothing most of the time is one the owner learns to
+             ignore. -->
+        <button v-if="busy" type="button" class="stop" @click="stop">
+          Stop
+        </button>
       </form>
     </template>
   </aside>
@@ -124,7 +211,7 @@ async function onSubmit() {
 }
 
 .rail:focus-visible,
-.collapse:focus-visible {
+.icon:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
@@ -137,19 +224,26 @@ header {
   padding: 0.5rem 0 0.75rem;
 }
 
-.collapse {
+.controls {
   position: absolute;
-  right: 1rem;
+  right: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.icon {
   background: none;
   border: none;
+  text-decoration: none;
   color: var(--text-secondary);
-  font-size: 1.5rem;
+  font-size: 1.15rem;
   line-height: 1;
-  padding: 0.25rem 0.5rem;
+  padding: 0.25rem 0.4rem;
   cursor: pointer;
 }
 
-.collapse:hover {
+.icon:hover {
   color: var(--text-primary);
 }
 
@@ -168,15 +262,6 @@ header {
   font-size: 1.05rem;
   font-weight: 300;
   letter-spacing: 0.02em;
-}
-
-/* The device speaking: bare text on the canvas, full measure */
-.assistant {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 1rem;
-  line-height: 1.65;
-  white-space: pre-wrap;
 }
 
 /* The owner's words are context: quiet, right-aligned pill */
@@ -202,10 +287,14 @@ header {
 
 form {
   padding: 0 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 input {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   background: var(--surface);
   color: var(--text-primary);
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -222,6 +311,27 @@ input:focus-visible {
 
 input:disabled {
   opacity: 0.55;
+}
+
+.stop {
+  flex: 0 0 auto;
+  background: var(--surface);
+  color: var(--text-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 0.75rem 0.9rem;
+  font-family: var(--font-family);
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.stop:hover {
+  color: var(--text-primary);
+}
+
+.stop:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* The pane has an optimal measure for bare assistant text; a percentage

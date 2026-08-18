@@ -184,47 +184,62 @@ fn crumbs_for(relative: &str) -> Vec<Crumb> {
     crumbs
 }
 
-/// Turn the owner's selection into a sentence for the agent.
+/// Turn where the owner is, and what they had selected, into a sentence
+/// for the agent.
 ///
-/// This is the one place a path becomes language. The interface sends
-/// paths relative to home; what reaches the model is names and the
-/// folder they sit in, because constitution.md forbids surfacing paths
-/// to the owner and a path in the model's context reliably comes back
-/// out in a reply. The agent has its own tools for reading a file if it
-/// needs the contents -- this only tells it *which* thing is meant.
+/// This is the one place a path becomes language. What reaches the model
+/// is written from the owner's own files downward -- never an absolute
+/// path, because nothing above their home is the device's business to
+/// mention and it is not somewhere they can navigate to anyway.
+///
+/// An earlier version sent bare filenames and no path at all, on the
+/// reasoning that a path in the model's context reliably comes back out
+/// in a reply. The observation was right; the remedy was aimed at the
+/// wrong layer. Names alone leave the agent unable to act on what the
+/// owner just pointed at -- two files called invoice.xlsx in different
+/// folders are one question it cannot answer -- so it guesses. The agent
+/// now knows which thing is meant, and the rule that it never *says* a
+/// path back lives in constitution.md, where behaviour is specified.
 ///
 /// Paths that no longer resolve are dropped rather than guessed at: a
 /// file deleted between selecting and sending should not become a
 /// confident claim about something that isn't there.
-pub fn context_sentence(paths: &[String]) -> Option<String> {
+pub fn context_sentence(paths: &[String], current_folder: Option<&str>) -> Option<String> {
+    let mut sentences: Vec<String> = Vec::new();
+
+    // Where they are reading. Home itself is deliberately unnamed: the
+    // owner's home directory is the root of everything they can see, so
+    // naming it says nothing and names a machine detail to do it.
+    if let Some(folder) = current_folder
+        .map(str::trim)
+        .filter(|folder| !folder.is_empty())
+        .filter(|folder| resolve(folder).is_ok())
+    {
+        sentences.push(format!("The owner is looking at the folder {folder}."));
+    }
+
     let described: Vec<String> = paths
         .iter()
         .filter(|p| resolve(p).is_ok())
         .filter_map(|p| {
             let path = Path::new(p);
-            let name = path.file_name()?.to_str()?;
-            match path.parent().and_then(|d| d.to_str()).unwrap_or("") {
-                // Directly in the owner's home -- naming a folder here
-                // would mean naming the home directory, which is exactly
-                // the machine detail that stays hidden.
-                "" => Some(format!("\"{name}\"")),
-                folder => Some(format!("\"{name}\" in {folder}")),
-            }
+            // A path with no final component names nothing selectable.
+            path.file_name()?.to_str()?;
+            Some(format!("\"{p}\""))
         })
         .collect();
 
     match described.len() {
-        0 => None,
-        1 => Some(format!(
-            "The owner is asking about {}.",
-            described[0]
-        )),
+        0 => {}
+        1 => sentences.push(format!("The owner is asking about {}.", described[0])),
         _ => {
             let last = described.last().cloned().unwrap_or_default();
             let head = described[..described.len() - 1].join(", ");
-            Some(format!("The owner is asking about {head} and {last}."))
+            sentences.push(format!("The owner is asking about {head} and {last}."));
         }
     }
+
+    (!sentences.is_empty()).then(|| sentences.join(" "))
 }
 
 /// List one directory: folders and files together, the way a file
@@ -349,7 +364,7 @@ mod tests {
     }
 
     #[test]
-    fn context_names_the_thing_and_its_folder_never_a_path() {
+    fn context_names_the_selection_but_never_absolutely() {
         // Uses whatever really exists, so the resolve() filter is
         // exercised rather than bypassed.
         let home = shelf_list(String::new()).expect("home should list");
@@ -357,15 +372,18 @@ mod tests {
             return;
         };
 
-        let sentence = context_sentence(&[entry.path.clone()]).expect("a sentence");
-        assert!(sentence.contains(&entry.name));
-        // Nothing that identifies the machine may appear.
-        assert!(!sentence.contains('/'), "a path leaked: {sentence}");
-        assert!(!sentence.contains("home"), "the home dir leaked: {sentence}");
+        let sentence = context_sentence(&[entry.path.clone()], None).expect("a sentence");
+        assert!(sentence.contains(&entry.path));
+        // The agent may know where something is; it may never be told
+        // anything above the owner's own files.
+        let root = root().expect("a home").to_string_lossy().into_owned();
+        assert!(!sentence.contains(&root), "the home dir leaked: {sentence}");
+        assert!(!sentence.contains("/home/"), "an absolute path leaked: {sentence}");
+        assert!(!sentence.contains("\"/"), "an absolute path leaked: {sentence}");
     }
 
     #[test]
-    fn context_says_the_folder_for_something_nested() {
+    fn context_names_something_nested_by_its_whole_relative_path() {
         let home = shelf_list(String::new()).expect("home should list");
         let Some(dir) = home.entries.iter().find(|e| e.is_dir && e.count > 0) else {
             return;
@@ -375,22 +393,51 @@ mod tests {
             return;
         };
 
-        let sentence = context_sentence(&[child.path.clone()]).expect("a sentence");
+        let sentence = context_sentence(&[child.path.clone()], None).expect("a sentence");
         assert!(sentence.contains(&child.name));
         assert!(
             sentence.contains(&dir.name),
             "should name the containing folder: {sentence}"
         );
+        assert!(
+            sentence.contains(&child.path),
+            "the agent must be able to tell two same-named files apart: {sentence}"
+        );
+    }
+
+    #[test]
+    fn context_says_where_the_owner_is_looking() {
+        let home = shelf_list(String::new()).expect("home should list");
+        let Some(dir) = home.entries.iter().find(|e| e.is_dir) else {
+            return;
+        };
+
+        let sentence = context_sentence(&[], Some(&dir.path)).expect("a sentence");
+        assert!(sentence.contains(&dir.name), "{sentence}");
+
+        // Home itself is unnamed: it is the root of everything the owner
+        // can see, so naming it says nothing and names a machine detail
+        // to do it.
+        assert_eq!(context_sentence(&[], Some("")), None);
+        assert_eq!(context_sentence(&[], None), None);
+        // A folder that isn't theirs is not a folder they are looking at.
+        assert_eq!(context_sentence(&[], Some("../../etc")), None);
     }
 
     #[test]
     fn context_drops_anything_that_no_longer_exists() {
         // A file deleted between selecting and sending must not become a
         // confident claim about something that isn't there.
-        assert_eq!(context_sentence(&["not-a-real-file.txt".to_string()]), None);
-        assert_eq!(context_sentence(&[]), None);
+        assert_eq!(
+            context_sentence(&["not-a-real-file.txt".to_string()], None),
+            None
+        );
+        assert_eq!(context_sentence(&[], None), None);
         // And a traversal attempt resolves to nothing, so it says nothing.
-        assert_eq!(context_sentence(&["../../etc/passwd".to_string()]), None);
+        assert_eq!(
+            context_sentence(&["../../etc/passwd".to_string()], None),
+            None
+        );
     }
 
     #[test]
@@ -400,7 +447,7 @@ mod tests {
             return;
         }
         let paths: Vec<String> = home.entries.iter().take(2).map(|e| e.path.clone()).collect();
-        let sentence = context_sentence(&paths).expect("a sentence");
+        let sentence = context_sentence(&paths, None).expect("a sentence");
         assert!(sentence.contains(" and "), "should join naturally: {sentence}");
         assert!(sentence.ends_with('.'));
     }

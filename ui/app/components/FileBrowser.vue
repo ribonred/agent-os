@@ -27,6 +27,13 @@ const {
 const context = useContext();
 watch(selectedEntries, (list) => context.set(list), { deep: true });
 
+// Where the owner is reading goes with every turn, selected or not:
+// "what is in here?" is a question about the folder, and it is the one
+// they ask without selecting anything first.
+watch(current, (folder) => (context.folder.value = folder), {
+  immediate: true,
+});
+
 // Dismissing something from the chip has to deselect the row too, or the
 // file view would keep showing a row as picked after the owner said they
 // didn't mean it. The chip is the authority in this direction.

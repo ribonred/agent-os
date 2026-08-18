@@ -12,6 +12,11 @@ export type ContextItem = { path: string; name: string; isDir: boolean };
 
 export function useContext() {
   const items = useState<ContextItem[]>("context:items", () => []);
+  // Where they are reading, sent on every turn rather than only when
+  // something is selected: "what is in here?" is a question about the
+  // folder, and it is the one the owner asks without selecting anything
+  // first. Empty means home, which is deliberately never named.
+  const folder = useState<string>("context:folder", () => "");
 
   function set(entries: Entry[]) {
     items.value = entries.map((e) => ({
@@ -31,5 +36,5 @@ export function useContext() {
 
   const paths = computed(() => items.value.map((i) => i.path));
 
-  return { items, paths, set, clear, remove };
+  return { items, folder, paths, set, clear, remove };
 }

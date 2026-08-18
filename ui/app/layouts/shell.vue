@@ -6,6 +6,12 @@
 // changes and a reply keeps streaming while the owner looks around.
 import { getChatCollapsed, setChatCollapsed } from "~/lib/shelfStore";
 
+// Minimized, the whole shell is the pill: the file view has no room and
+// no purpose at that size, and the conversation is the only thing the
+// owner came back for. The page underneath keeps its state, so the way
+// back is a resize rather than a reload.
+const { mode } = useWindowMode();
+
 const collapsed = ref(false);
 
 onMounted(async () => {
@@ -19,7 +25,8 @@ async function setCollapsed(value: boolean) {
 </script>
 
 <template>
-  <div class="shell">
+  <PillShell v-if="mode === 'minimized'" />
+  <div v-else class="shell">
     <ConversationPane
       :collapsed="collapsed"
       @update:collapsed="setCollapsed"

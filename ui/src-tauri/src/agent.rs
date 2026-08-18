@@ -71,6 +71,10 @@ const ONBOARDING_START: &str = include_str!("../../../brain/onboarding-start.md"
 /// Picking the conversation back up after a restart mid-setup.
 const ONBOARDING_RESUME: &str = include_str!("../../../brain/onboarding-resume.md");
 
+/// How the agent offers a question's likely answers so the owner can pick
+/// one instead of typing. Applies to every conversation, setup included.
+const CHAT_PROTOCOL: &str = include_str!("../../../brain/chat-protocol.md");
+
 // ---------------------------------------------------------------------
 // The soul overlay: the owner's setup choices (name, persona, language)
 // applied on top of the shipped constitution. The gateway appends a
@@ -186,16 +190,36 @@ fn overlay_from_store(app: &tauri::AppHandle) -> Option<String> {
     compose_overlay(name.as_deref(), persona.as_deref(), language.as_deref())
 }
 
+/// The overlay for normal chat: the owner's setup choices plus the
+/// answer-offering convention. Unlike `compose_overlay`, this is never
+/// None -- the convention applies on a device that has chosen nothing.
+fn chat_overlay(app: &tauri::AppHandle) -> String {
+    let setup = overlay_from_store(app).unwrap_or_default();
+    [setup, CHAT_PROTOCOL.trim().to_string()]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
 fn onboarding_overlay(app: &tauri::AppHandle, question_count: u8) -> String {
     let setup = overlay_from_store(app).unwrap_or_default();
     let progress = format!(
         "The shell has counted {question_count} discovery questions so far. Treat this count as authoritative."
     );
-    [setup, ONBOARDING_PROTOCOL.trim().to_string(), progress]
-        .into_iter()
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n\n")
+    // Onboarding is the run of questions the convention helps most: up to
+    // fifteen of them, put to someone who has owned the device for
+    // minutes and may be answering in their second language.
+    [
+        setup,
+        ONBOARDING_PROTOCOL.trim().to_string(),
+        CHAT_PROTOCOL.trim().to_string(),
+        progress,
+    ]
+    .into_iter()
+    .filter(|part| !part.is_empty())
+    .collect::<Vec<_>>()
+    .join("\n\n")
 }
 
 fn stored_onboarding_session(app: &tauri::AppHandle) -> Option<String> {
@@ -301,31 +325,47 @@ pub async fn agent_status() -> Result<serde_json::Value, String> {
     serde_json::from_slice(&body).map_err(|e| format!("agent gateway sent invalid JSON: {e}"))
 }
 
-async fn create_session(key: &str) -> Result<String, String> {
-    let uri: hyper::Uri = format!("{}/api/sessions", base_url())
+/// One JSON POST to the gateway. Returns the status alongside the body
+/// so a caller can act on a particular failure (a stale session, an
+/// approval that is no longer pending) rather than only on success.
+async fn post_json(
+    path: &str,
+    key: &str,
+    payload: &serde_json::Value,
+    memory_scope: bool,
+) -> Result<(hyper::StatusCode, Vec<u8>), String> {
+    let uri: hyper::Uri = format!("{}{path}", base_url())
         .parse()
         .map_err(|e| format!("bad gateway URL: {e}"))?;
-    let payload = serde_json::json!({ "model": model_id() });
     let encoded =
-        serde_json::to_vec(&payload).map_err(|e| format!("could not encode session request: {e}"))?;
-    let request = hyper::Request::post(uri)
+        serde_json::to_vec(payload).map_err(|e| format!("could not encode request: {e}"))?;
+    let mut request = hyper::Request::post(uri)
         .header("authorization", format!("Bearer {key}"))
-        .header("content-type", "application/json")
+        .header("content-type", "application/json");
+    if memory_scope {
+        request = request.header("x-hermes-session-key", MEMORY_SCOPE);
+    }
+    let request = request
         .body(Full::new(Bytes::from(encoded)))
-        .map_err(|e| format!("could not build session request: {e}"))?;
+        .map_err(|e| format!("could not build request: {e}"))?;
 
     let response = http_client()
         .request(request)
         .await
         .map_err(|e| format!("agent gateway unreachable: {e}"))?;
-
     let status = response.status();
     let body = response
         .into_body()
         .collect()
         .await
-        .map_err(|e| format!("session response failed: {e}"))?
+        .map_err(|e| format!("gateway response failed: {e}"))?
         .to_bytes();
+    Ok((status, body.to_vec()))
+}
+
+async fn create_session(key: &str) -> Result<String, String> {
+    let payload = serde_json::json!({ "model": model_id() });
+    let (status, body) = post_json("/api/sessions", key, &payload, false).await?;
     if !status.is_success() {
         return Err(format!(
             "agent gateway refused session ({status}): {}",
@@ -341,25 +381,164 @@ async fn create_session(key: &str) -> Result<String, String> {
         .ok_or_else(|| "session response carried no session.id".to_string())
 }
 
+/// Starts one turn as a run and returns its id.
+///
+/// Runs rather than session chat because only this path carries the
+/// approval channel: the gateway registers a run's approval callback when
+/// the run is created, so a permission request raised during a session
+/// chat turn has nowhere to go and the owner is never asked. Everything
+/// the older path gave -- streamed text, tool activity, the session's own
+/// history, the per-turn system overlay -- is here too, under different
+/// event names.
+///
+/// The gateway registers the run's event queue before responding, so
+/// subscribing after this returns cannot miss the run's first events.
+async fn start_run(
+    key: &str,
+    session_id: &str,
+    input: &str,
+    instructions: Option<&str>,
+) -> Result<(hyper::StatusCode, String), String> {
+    let mut payload = serde_json::json!({
+        "input": input,
+        "session_id": session_id,
+        "model": model_id(),
+    });
+    if let Some(instructions) = instructions {
+        payload["instructions"] = serde_json::Value::String(instructions.to_string());
+    }
+    let (status, body) = post_json("/v1/runs", key, &payload, true).await?;
+    if !status.is_success() {
+        return Ok((status, String::from_utf8_lossy(&body).into_owned()));
+    }
+    let parsed: serde_json::Value =
+        serde_json::from_slice(&body).map_err(|e| format!("invalid run JSON: {e}"))?;
+    let run_id = parsed["run_id"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| "run response carried no run_id".to_string())?;
+    Ok((status, run_id))
+}
+
+/// Streams one run's events to the UI. Returns whether any text arrived,
+/// which decides whether the no-response fallback below has to run.
+async fn stream_run(
+    key: &str,
+    run_id: &str,
+    on_event: &Channel<serde_json::Value>,
+) -> Result<bool, String> {
+    let uri: hyper::Uri = format!("{}/v1/runs/{run_id}/events", base_url())
+        .parse()
+        .map_err(|e| format!("bad gateway URL: {e}"))?;
+    let request = hyper::Request::get(uri)
+        .header("authorization", format!("Bearer {key}"))
+        .body(Full::new(Bytes::new()))
+        .map_err(|e| format!("could not build event request: {e}"))?;
+
+    let response = http_client()
+        .request(request)
+        .await
+        .map_err(|e| format!("agent gateway unreachable: {e}"))?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .map(|body| String::from_utf8_lossy(&body.to_bytes()).into_owned())
+            .unwrap_or_default();
+        return Err(format!("agent gateway refused the run stream ({status}): {body}"));
+    }
+
+    let mut body = response.into_body();
+    let mut buffer: Vec<u8> = Vec::new();
+    let mut streamed_any_token = false;
+    while let Some(frame) = body.frame().await {
+        let frame = frame.map_err(|e| format!("run stream failed mid-response: {e}"))?;
+        let Some(data) = frame.data_ref() else {
+            continue;
+        };
+        buffer.extend_from_slice(data);
+        while let Some(boundary) = buffer.windows(2).position(|window| window == b"\n\n") {
+            let record: Vec<u8> = buffer.drain(..boundary + 2).collect();
+            let record = String::from_utf8_lossy(&record);
+            let Some(mut event) = translate_sse_record(&record) else {
+                continue;
+            };
+            if event["type"] == "final" {
+                if streamed_any_token || event["content"].as_str().unwrap_or("").is_empty() {
+                    continue;
+                }
+                event["type"] = serde_json::Value::String("token".into());
+            }
+            if event["type"] == "token" {
+                streamed_any_token = true;
+            }
+            on_event
+                .send(event)
+                .map_err(|e| format!("ui channel closed: {e}"))?;
+        }
+    }
+    Ok(streamed_any_token)
+}
+
+/// The last thing the assistant said in a transcript.
+///
+/// The run stream has no equivalent of the session stream's
+/// assistant.completed event, so a model that returns its whole reply at
+/// once instead of streaming it produces a run with no text events at
+/// all. Rather than showing the owner "no response" while the gateway
+/// holds a perfectly good answer -- which happened for real on the first
+/// device install -- read it back from the transcript.
+fn last_assistant_text(transcript: &serde_json::Value) -> Option<String> {
+    transcript["data"]
+        .as_array()?
+        .iter()
+        .rev()
+        .find(|message| message["role"] == "assistant")
+        .and_then(|message| message["content"].as_str())
+        .map(str::to_string)
+        .filter(|content| !content.trim().is_empty())
+}
+
 /// One complete SSE record ("event:"/"data:" lines up to a blank line),
 /// translated to the UI's stream-event shape. Returns None for records
-/// the UI has no use for (lifecycle bookkeeping, tool progress -- the
-/// orb's thinking rhythm already covers the pre-token wait).
+/// the UI has no use for (lifecycle bookkeeping, reasoning traces, tool
+/// progress -- the orb's thinking rhythm already covers the wait).
+///
+/// The run stream and the older session-chat stream differ in more than
+/// vocabulary. The session stream puts the event's name on the SSE
+/// `event:` line; the run stream omits that line entirely and carries
+/// the name as an "event" field inside the JSON. Both are read here, as
+/// are both spellings of the same things (message.delta vs
+/// assistant.delta, "tool" vs "tool_name"), rather than assuming one
+/// gateway build's shape -- a record whose name is only ever looked for
+/// on a line that isn't there translates to nothing at all, and the
+/// whole turn arrives as silence.
 fn translate_sse_record(record: &str) -> Option<serde_json::Value> {
-    let mut event_name = "";
+    let mut framed_name = "";
     let mut data = String::new();
     for line in record.lines() {
         let line = line.trim_end_matches('\r');
         if let Some(rest) = line.strip_prefix("event:") {
-            event_name = rest.trim();
+            framed_name = rest.trim();
         } else if let Some(rest) = line.strip_prefix("data:") {
             data.push_str(rest.trim_start());
         }
     }
+    let parsed = || serde_json::from_str::<serde_json::Value>(&data).ok();
+    let payload_name = parsed()
+        .and_then(|value| value["event"].as_str().map(str::to_string))
+        .unwrap_or_default();
+    let event_name = if framed_name.is_empty() {
+        payload_name.as_str()
+    } else {
+        framed_name
+    };
 
     match event_name {
-        "assistant.delta" => {
-            let parsed: serde_json::Value = serde_json::from_str(&data).ok()?;
+        "message.delta" | "assistant.delta" => {
+            let parsed = parsed()?;
             let delta = parsed["delta"].as_str()?.to_string();
             Some(serde_json::json!({ "type": "token", "content": delta }))
         }
@@ -369,14 +548,61 @@ fn translate_sse_record(record: &str) -> Option<serde_json::Value> {
         // and without this fallback the UI shows "no response" while the
         // gateway said plenty. Seen live on the first device install.
         "assistant.completed" => {
-            let parsed: serde_json::Value = serde_json::from_str(&data).ok()?;
+            let parsed = parsed()?;
             let content = parsed["content"].as_str()?.to_string();
             Some(serde_json::json!({ "type": "final", "content": content }))
         }
+        // What the device did, not how far along it is: one line per
+        // action in the conversation, which is the question the owner
+        // actually has when a reply takes a while.
+        "tool.started" | "tool.completed" | "tool.failed" => {
+            let parsed = parsed()?;
+            let name = parsed["tool"]
+                .as_str()
+                .or(parsed["tool_name"].as_str())
+                .unwrap_or("")
+                .to_string();
+            // The run stream reports a failed tool as a completion
+            // carrying error: true; only the session stream has a
+            // distinct event for it.
+            let failed = event_name == "tool.failed" || parsed["error"] == true;
+            let phase = if event_name == "tool.started" {
+                "started"
+            } else if failed {
+                "failed"
+            } else {
+                "completed"
+            };
+            Some(serde_json::json!({ "type": "tool", "name": name, "phase": phase }))
+        }
+        // The runtime is holding a command until the owner answers. Only
+        // ever seen when the owner has turned permission asking on.
+        "approval.request" => {
+            let parsed = parsed()?;
+            let choices: Vec<String> = parsed["choices"]
+                .as_array()
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter_map(|value| value.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            Some(serde_json::json!({
+                "type": "approval",
+                "description": parsed["description"].as_str().unwrap_or(""),
+                // Already redacted gateway-side, but it stays behind a
+                // disclosure in the UI either way.
+                "command": parsed["command"].as_str().unwrap_or(""),
+                "choices": choices,
+            }))
+        }
         "run.completed" => Some(serde_json::json!({ "type": "done" })),
+        // Not an error the owner caused: the run was stopped, which the
+        // UI reports as an ended turn rather than a failure.
+        "run.cancelled" => Some(serde_json::json!({ "type": "cancelled" })),
         name if name.contains("error") || name.contains("failed") => {
-            let message = serde_json::from_str::<serde_json::Value>(&data)
-                .ok()
+            let message = parsed()
                 .and_then(|v| {
                     v["message"]
                         .as_str()
@@ -471,7 +697,7 @@ fn has_committed_user_memory_write(transcript: &serde_json::Value) -> bool {
     })
 }
 
-async fn stream_chat_turn(
+async fn run_turn(
     input: String,
     overlay: Option<String>,
     key: &str,
@@ -483,66 +709,28 @@ async fn stream_chat_turn(
     }
     let id = session_id.as_ref().expect("session id set above").clone();
 
-    let uri: hyper::Uri = format!("{}/api/sessions/{id}/chat/stream", base_url())
-        .parse()
-        .map_err(|e| format!("bad gateway URL: {e}"))?;
-    let mut body = serde_json::json!({ "input": input });
-    if let Some(overlay) = overlay {
-        body["system_message"] = serde_json::Value::String(overlay);
-    }
-    let payload =
-        serde_json::to_vec(&body).map_err(|e| format!("could not encode chat request: {e}"))?;
-    let request = hyper::Request::post(uri)
-        .header("authorization", format!("Bearer {key}"))
-        .header("content-type", "application/json")
-        .header("x-hermes-session-key", MEMORY_SCOPE)
-        .body(Full::new(Bytes::from(payload)))
-        .map_err(|e| format!("could not build chat request: {e}"))?;
-
-    let response = http_client()
-        .request(request)
-        .await
-        .map_err(|e| format!("agent gateway unreachable: {e}"))?;
-    let status = response.status();
+    let (status, run_id) = start_run(key, &id, &input, overlay.as_deref()).await?;
     if !status.is_success() {
-        let body = response
-            .into_body()
-            .collect()
-            .await
-            .map(|body| String::from_utf8_lossy(&body.to_bytes()).into_owned())
-            .unwrap_or_default();
+        // The gateway forgot this session (a restart, an eviction). Drop
+        // it so the next turn opens a fresh one instead of failing
+        // identically forever.
         if status == hyper::StatusCode::NOT_FOUND {
             *session_id = None;
         }
-        return Err(format!("agent gateway rejected chat ({status}): {body}"));
+        return Err(format!("agent gateway rejected the turn ({status}): {run_id}"));
     }
 
-    let mut body = response.into_body();
-    let mut buffer: Vec<u8> = Vec::new();
-    let mut streamed_any_token = false;
-    while let Some(frame) = body.frame().await {
-        let frame = frame.map_err(|e| format!("chat stream failed mid-response: {e}"))?;
-        let Some(data) = frame.data_ref() else {
-            continue;
-        };
-        buffer.extend_from_slice(data);
-        while let Some(boundary) = buffer.windows(2).position(|window| window == b"\n\n") {
-            let record: Vec<u8> = buffer.drain(..boundary + 2).collect();
-            let record = String::from_utf8_lossy(&record);
-            let Some(mut event) = translate_sse_record(&record) else {
-                continue;
-            };
-            if event["type"] == "final" {
-                if streamed_any_token || event["content"].as_str().unwrap_or("").is_empty() {
-                    continue;
-                }
-                event["type"] = serde_json::Value::String("token".into());
-            }
-            if event["type"] == "token" {
-                streamed_any_token = true;
-            }
+    // The UI needs the run's identity to answer a permission request or
+    // stop the turn, and it needs it before either can happen.
+    on_event
+        .send(serde_json::json!({ "type": "run", "runId": run_id }))
+        .map_err(|e| format!("ui channel closed: {e}"))?;
+
+    let streamed_any_token = stream_run(key, &run_id, on_event).await?;
+    if !streamed_any_token {
+        if let Some(content) = last_assistant_text(&session_messages(key, &id).await?) {
             on_event
-                .send(event)
+                .send(serde_json::json!({ "type": "token", "content": content }))
                 .map_err(|e| format!("ui channel closed: {e}"))?;
         }
     }
@@ -553,27 +741,71 @@ async fn stream_chat_turn(
 pub async fn agent_chat(
     input: String,
     context_paths: Option<Vec<String>>,
+    current_folder: Option<String>,
     app: tauri::AppHandle,
     session: tauri::State<'_, AgentSession>,
     on_event: Channel<serde_json::Value>,
 ) -> Result<(), String> {
     let key = api_key()?;
-    let overlay = overlay_from_store(&app);
+    let overlay = chat_overlay(&app);
 
-    // What the owner had selected when they pressed send, said in plain
-    // language. Prepended to the turn rather than folded into the system
-    // overlay: it is context for this one question, not a standing fact
-    // about the device.
-    let input = match context_paths
-        .as_deref()
-        .and_then(crate::shelf::context_sentence)
-    {
+    // Where the owner was and what they had selected when they pressed
+    // send, said in plain language. Prepended to the turn rather than
+    // folded into the system overlay: it is context for this one
+    // question, not a standing fact about the device.
+    let context = crate::shelf::context_sentence(
+        context_paths.as_deref().unwrap_or(&[]),
+        current_folder.as_deref(),
+    );
+    let input = match context {
         Some(context) => format!("{context}\n\n{input}"),
         None => input,
     };
 
     let mut session_id = session.chat.lock().await;
-    stream_chat_turn(input, overlay, &key, &mut session_id, &on_event).await?;
+    run_turn(input, Some(overlay), &key, &mut session_id, &on_event).await?;
+    Ok(())
+}
+
+/// Answers a permission request the runtime is holding a command on.
+///
+/// `choice` is the gateway's own vocabulary (once, session, always,
+/// deny) taken straight from the request's choices -- the owner-facing
+/// wording lives in the UI, and inventing a choice the request did not
+/// offer would be rejected here anyway.
+#[tauri::command]
+pub async fn agent_approve(run_id: String, choice: String) -> Result<(), String> {
+    let key = api_key()?;
+    let payload = serde_json::json!({ "choice": choice });
+    let (status, body) =
+        post_json(&format!("/v1/runs/{run_id}/approval"), &key, &payload, false).await?;
+    if !status.is_success() {
+        return Err(format!(
+            "agent gateway refused the answer ({status}): {}",
+            String::from_utf8_lossy(&body)
+        ));
+    }
+    Ok(())
+}
+
+/// Interrupts a turn the owner no longer wants to wait for. The run
+/// stream ends with a cancelled event rather than an error.
+#[tauri::command]
+pub async fn agent_stop(run_id: String) -> Result<(), String> {
+    let key = api_key()?;
+    let (status, body) = post_json(
+        &format!("/v1/runs/{run_id}/stop"),
+        &key,
+        &serde_json::json!({}),
+        false,
+    )
+    .await?;
+    if !status.is_success() {
+        return Err(format!(
+            "agent gateway refused to stop ({status}): {}",
+            String::from_utf8_lossy(&body)
+        ));
+    }
     Ok(())
 }
 
@@ -601,7 +833,7 @@ pub async fn agent_onboarding_chat(
                 ONBOARDING_START.trim().to_string()
             }
         });
-    let id = match stream_chat_turn(input, Some(overlay), &key, &mut session_id, &on_event).await {
+    let id = match run_turn(input, Some(overlay), &key, &mut session_id, &on_event).await {
         Ok(id) => id,
         Err(error) => {
             if session_id.is_none() {
@@ -626,10 +858,119 @@ mod tests {
 
     #[test]
     fn delta_record_becomes_a_token() {
+        // The run stream's spelling and the session stream's, both
+        // accepted so one gateway build's vocabulary is not assumed.
+        let record = "event: message.delta\ndata: {\"delta\": \"Hi\", \"seq\": 3}\n";
+        assert_eq!(
+            translate_sse_record(record),
+            Some(serde_json::json!({ "type": "token", "content": "Hi" }))
+        );
         let record = "event: assistant.delta\ndata: {\"delta\": \"Hi\", \"seq\": 3}\n";
         assert_eq!(
             translate_sse_record(record),
             Some(serde_json::json!({ "type": "token", "content": "Hi" }))
+        );
+    }
+
+    #[test]
+    fn the_event_name_is_read_from_either_wire_shape() {
+        // The run stream sends no `event:` line at all and carries the
+        // name inside the payload. Reading it only off the line that
+        // isn't there translated every record to nothing, so a whole
+        // turn arrived as silence while the gateway had said plenty --
+        // seen live against the running gateway, not imagined.
+        let framed = "event: message.delta\ndata: {\"delta\": \"Hi\"}\n";
+        let in_payload = "data: {\"event\": \"message.delta\", \"delta\": \"Hi\"}\n";
+        let expected = Some(serde_json::json!({ "type": "token", "content": "Hi" }));
+        assert_eq!(translate_sse_record(framed), expected);
+        assert_eq!(translate_sse_record(in_payload), expected);
+
+        assert_eq!(
+            translate_sse_record("data: {\"event\": \"run.completed\"}\n"),
+            Some(serde_json::json!({ "type": "done" }))
+        );
+        // A keepalive comment is not an event.
+        assert_eq!(translate_sse_record(": keepalive\n"), None);
+    }
+
+    #[test]
+    fn tool_records_say_what_the_device_did() {
+        let started = "event: tool.started\ndata: {\"tool\": \"read_file\", \"preview\": \"x\"}\n";
+        assert_eq!(
+            translate_sse_record(started),
+            Some(serde_json::json!({ "type": "tool", "name": "read_file", "phase": "started" }))
+        );
+
+        // The run stream reports a failure as a completion carrying
+        // error: true; only the older session stream has its own event.
+        let failed = "event: tool.completed\ndata: {\"tool\": \"terminal\", \"error\": true}\n";
+        assert_eq!(
+            translate_sse_record(failed),
+            Some(serde_json::json!({ "type": "tool", "name": "terminal", "phase": "failed" }))
+        );
+        let completed = "event: tool.completed\ndata: {\"tool\": \"terminal\", \"error\": false}\n";
+        assert_eq!(
+            translate_sse_record(completed),
+            Some(serde_json::json!({ "type": "tool", "name": "terminal", "phase": "completed" }))
+        );
+
+        // The session stream's own naming, for the same events.
+        let session_style = "event: tool.failed\ndata: {\"tool_name\": \"patch\"}\n";
+        assert_eq!(
+            translate_sse_record(session_style),
+            Some(serde_json::json!({ "type": "tool", "name": "patch", "phase": "failed" }))
+        );
+    }
+
+    #[test]
+    fn approval_records_carry_only_the_offered_choices() {
+        // Never a hardcoded set: the gateway offers fewer when a command
+        // may not be permanently allowed, and offering one it did not
+        // would be rejected anyway.
+        let record = "event: approval.request\ndata: {\"description\": \"Delete a folder\", \
+                      \"command\": \"rm -r x\", \"choices\": [\"once\", \"deny\"]}\n";
+        assert_eq!(
+            translate_sse_record(record),
+            Some(serde_json::json!({
+                "type": "approval",
+                "description": "Delete a folder",
+                "command": "rm -r x",
+                "choices": ["once", "deny"],
+            }))
+        );
+    }
+
+    #[test]
+    fn a_stopped_run_ends_the_turn_without_being_an_error() {
+        assert_eq!(
+            translate_sse_record("event: run.cancelled\ndata: {}\n"),
+            Some(serde_json::json!({ "type": "cancelled" }))
+        );
+    }
+
+    #[test]
+    fn the_last_assistant_message_is_the_no_stream_fallback() {
+        let transcript = serde_json::json!({
+            "data": [
+                { "role": "assistant", "content": "first" },
+                { "role": "user", "content": "then this" },
+                { "role": "assistant", "content": "the reply" },
+            ]
+        });
+        assert_eq!(
+            last_assistant_text(&transcript),
+            Some("the reply".to_string())
+        );
+        // Nothing to fall back to is not an empty answer worth showing.
+        assert_eq!(
+            last_assistant_text(&serde_json::json!({ "data": [] })),
+            None
+        );
+        assert_eq!(
+            last_assistant_text(&serde_json::json!({
+                "data": [{ "role": "assistant", "content": "   " }]
+            })),
+            None
         );
     }
 
@@ -654,7 +995,13 @@ mod tests {
 
     #[test]
     fn bookkeeping_records_are_dropped() {
-        for name in ["run.started", "message.started", "tool.progress", "tool.started"] {
+        for name in [
+            "run.started",
+            "message.started",
+            "tool.progress",
+            "reasoning.available",
+            "approval.responded",
+        ] {
             let record = format!("event: {name}\ndata: {{}}\n");
             assert_eq!(translate_sse_record(&record), None, "{name}");
         }
@@ -669,23 +1016,27 @@ mod tests {
         );
     }
 
-    /// Full round-trip against a live gateway; opt-in because it needs
-    /// one running (and a resolvable key): cargo test -- --ignored
-    #[tokio::test]
-    #[ignore]
-    async fn live_gateway_roundtrip() {
-        let key = api_key().expect("no key resolvable");
-        let session = create_session(&key).await.expect("session create failed");
-        assert!(session.starts_with("api_"), "unexpected session id: {session}");
+    /// Collects one live run's stream, returning the text and whether it
+    /// ended cleanly. Shared by the opt-in tests below so they exercise
+    /// the same request path the shell actually uses.
+    #[cfg(test)]
+    async fn collect_live_run(
+        key: &str,
+        session: &str,
+        input: &str,
+        instructions: Option<&str>,
+    ) -> (String, bool) {
+        let (status, run_id) = start_run(key, session, input, instructions)
+            .await
+            .expect("run request failed");
+        assert!(status.is_success(), "{status}: {run_id}");
 
-        let uri: hyper::Uri = format!("{}/api/sessions/{session}/chat/stream", base_url())
+        let uri: hyper::Uri = format!("{}/v1/runs/{run_id}/events", base_url())
             .parse()
             .unwrap();
-        let body = serde_json::json!({ "input": "Reply with the single word: pong" });
-        let request = hyper::Request::post(uri)
+        let request = hyper::Request::get(uri)
             .header("authorization", format!("Bearer {key}"))
-            .header("content-type", "application/json")
-            .body(Full::new(Bytes::from(serde_json::to_vec(&body).unwrap())))
+            .body(Full::new(Bytes::new()))
             .unwrap();
         let response = http_client().request(request).await.expect("stream failed");
         assert!(response.status().is_success(), "{}", response.status());
@@ -704,21 +1055,56 @@ mod tests {
                         Some(ev) if ev["type"] == "token" => {
                             tokens.push_str(ev["content"].as_str().unwrap())
                         }
-                        Some(ev) if ev["type"] == "final" => {
-                            if tokens.is_empty() {
-                                tokens.push_str(ev["content"].as_str().unwrap())
-                            }
-                        }
                         Some(ev) if ev["type"] == "done" => saw_done = true,
-                        Some(ev) => panic!("stream error event: {ev}"),
-                        None => {}
+                        Some(ev) if ev["type"] == "tool" => {
+                            println!("tool: {} {}", ev["name"], ev["phase"])
+                        }
+                        Some(ev) if ev["type"] == "error" => panic!("stream error event: {ev}"),
+                        Some(_) | None => {}
                     }
                 }
             }
         }
+        (tokens, saw_done)
+    }
+
+    /// Full round-trip against a live gateway; opt-in because it needs
+    /// one running (and a resolvable key): cargo test -- --ignored
+    #[tokio::test]
+    #[ignore]
+    async fn live_gateway_roundtrip() {
+        let key = api_key().expect("no key resolvable");
+        let session = create_session(&key).await.expect("session create failed");
+        assert!(session.starts_with("api_"), "unexpected session id: {session}");
+
+        let (tokens, saw_done) =
+            collect_live_run(&key, &session, "Reply with the single word: pong", None).await;
+
         assert!(saw_done, "stream ended without run.completed");
-        assert!(!tokens.is_empty(), "no tokens streamed");
+        assert!(!tokens.is_empty(), "no text streamed");
         println!("assistant said: {tokens}");
+    }
+
+    /// The turn a model that does not stream produces: no text events at
+    /// all, and the transcript is the only place the answer exists.
+    /// Opt-in: cargo test -- --ignored
+    #[tokio::test]
+    #[ignore]
+    async fn live_gateway_transcript_fallback_finds_the_reply() {
+        let key = api_key().expect("no key resolvable");
+        let session = create_session(&key).await.expect("session create failed");
+        let (tokens, _) =
+            collect_live_run(&key, &session, "Reply with the single word: pong", None).await;
+
+        let transcript = session_messages(&key, &session)
+            .await
+            .expect("transcript fetch failed");
+        let recovered = last_assistant_text(&transcript).expect("no assistant message to recover");
+        assert!(
+            recovered.contains(tokens.trim()) || tokens.trim().contains(&recovered),
+            "the fallback would show something other than the streamed reply:\n\
+             streamed: {tokens}\nrecovered: {recovered}"
+        );
     }
 
     #[test]
@@ -811,7 +1197,9 @@ mod tests {
         assert!(!has_committed_user_memory_write(&service_fact));
     }
 
-    /// Named-identity round-trip against a live gateway; opt-in:
+    /// Named-identity round-trip against a live gateway: proves the
+    /// overlay still reaches the model through the run path's
+    /// `instructions` rather than the older `system_message`. Opt-in:
     /// cargo test -- --ignored
     #[tokio::test]
     #[ignore]
@@ -820,40 +1208,14 @@ mod tests {
         let session = create_session(&key).await.expect("session create failed");
         let overlay = compose_overlay(Some("Kirana"), Some("warm-patient"), Some("en")).unwrap();
 
-        let uri: hyper::Uri = format!("{}/api/sessions/{session}/chat/stream", base_url())
-            .parse()
-            .unwrap();
-        let body = serde_json::json!({
-            "input": "What is your name? Reply with just the name.",
-            "system_message": overlay,
-        });
-        let request = hyper::Request::post(uri)
-            .header("authorization", format!("Bearer {key}"))
-            .header("content-type", "application/json")
-            .body(Full::new(Bytes::from(serde_json::to_vec(&body).unwrap())))
-            .unwrap();
-        let response = http_client().request(request).await.expect("stream failed");
-        assert!(response.status().is_success(), "{}", response.status());
+        let (tokens, _) = collect_live_run(
+            &key,
+            &session,
+            "What is your name? Reply with just the name.",
+            Some(&overlay),
+        )
+        .await;
 
-        let mut body = response.into_body();
-        let mut buf: Vec<u8> = Vec::new();
-        let mut tokens = String::new();
-        while let Some(frame) = body.frame().await {
-            let frame = frame.expect("frame error");
-            if let Some(data) = frame.data_ref() {
-                buf.extend_from_slice(data);
-                while let Some(boundary) = buf.windows(2).position(|w| w == b"\n\n") {
-                    let record: Vec<u8> = buf.drain(..boundary + 2).collect();
-                    if let Some(ev) = translate_sse_record(&String::from_utf8_lossy(&record)) {
-                        if ev["type"] == "token" {
-                            tokens.push_str(ev["content"].as_str().unwrap());
-                        } else if ev["type"] == "final" && tokens.is_empty() {
-                            tokens.push_str(ev["content"].as_str().unwrap());
-                        }
-                    }
-                }
-            }
-        }
         println!("assistant said: {tokens}");
         assert!(
             tokens.contains("Kirana"),
@@ -887,6 +1249,34 @@ mod prompt_tests {
         // The two behaviours these prompts exist to enforce.
         assert!(ONBOARDING_PROTOCOL.contains("one question per reply"));
         assert!(ONBOARDING_PROTOCOL.contains("yes or no"));
+    }
+
+    #[test]
+    fn the_answer_convention_is_baked_in_and_names_its_own_syntax() {
+        assert!(CHAT_PROTOCOL.len() > 500, "chat protocol looks empty");
+        // The shell parses exactly this; a doc that drifts to some other
+        // spelling produces options the owner never sees.
+        assert!(CHAT_PROTOCOL.contains("<options>"));
+        assert!(CHAT_PROTOCOL.contains("</options>"));
+        assert!(CHAT_PROTOCOL.contains("Two to four"));
+    }
+
+    #[test]
+    fn the_convention_tells_the_agent_to_hold_back() {
+        // Written permissively at first ("offer the answers when there
+        // are answers"), it put a row of buttons under every question
+        // the device asked, which turns a conversation into a form and
+        // invites the owner to pick the nearest option rather than say
+        // what is true. The restraint is the point of the file, so it is
+        // asserted rather than left to survive the next edit by luck.
+        assert!(CHAT_PROTOCOL.contains("Most questions are just questions"));
+        assert!(CHAT_PROTOCOL.contains("Everywhere else, ask plainly"));
+        assert!(CHAT_PROTOCOL.contains("That is not a reason."));
+        // And the other half: a device that never offers them is as
+        // wrong as one that always does. An earlier draft leaned so far
+        // into restraint that the model stopped offering answers even
+        // for a plain choice between two folders it had just named.
+        assert!(CHAT_PROTOCOL.contains("The two situations where you offer them"));
     }
 }
 

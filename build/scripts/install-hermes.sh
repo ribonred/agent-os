@@ -281,15 +281,27 @@ memory:
   write_approval: false
 
 # The agent administers this device, so the safety posture is "confirm
-# before harm", not "restrict what it can reach": harmless acts run,
-# dangerous ones raise an approval the owner taps, and the agent's own
-# hard floor blocks unrecoverable ones outright.
+# before harm", not "restrict what it can reach": harmless acts run and
+# the agent's own hard floor blocks unrecoverable ones outright.
 #
-# `deny` is deliberately tiny. The owner has no separate admin account and
-# no settings UI, so relaxing a rule happens THROUGH the agent -- banning
-# policy edits would lock them out of their own device. The carve-out is
-# only the provisioned credentials: leaking those bills the vendor and is
-# never the owner administering anything.
+# `mode` ships off, and the shell's settings screen is what turns it on
+# ("manual" -- every command the runtime flags stops and asks the owner).
+# Off is the right default because the device is sold to someone who
+# cannot adjudicate a shell command on day one: asking them to teaches
+# them to approve without reading, which is worse than not asking. When
+# they do turn it on, the shell reads and writes this exact field and the
+# gateway picks the change up on its next turn, so nothing restarts.
+#
+# Confirmation for consequential actions does not depend on this setting.
+# It is a behaviour the constitution requires of the agent; this only
+# decides whether the runtime additionally stops it at the command.
+#
+# `deny` is deliberately tiny, and it applies whatever `mode` says -- deny
+# rules and the hard floor are both checked before any bypass. The owner
+# has no separate admin account, so relaxing a rule happens THROUGH the
+# agent, and banning policy edits would lock them out of their own device.
+# The carve-out is only the provisioned credentials: leaking those bills
+# the vendor and is never the owner administering anything.
 approvals:
   mode: "off"
   deny:

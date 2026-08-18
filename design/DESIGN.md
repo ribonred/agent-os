@@ -168,6 +168,49 @@ first. This is still setup, not the normal chat screen:
   opening up -- literally, here -- not a success ceremony or an
   administrative completion screen.
 
+## Window modes
+
+The assistant runs as an application on Ubuntu's own desktop session, not
+as the only thing the screen can show. That makes the window itself a
+design surface with two states, and the owner moves between them freely:
+
+- **Full.** Maximized and undecorated: the two-pane shell, conversation
+  on the left, the owner's files beside it. This is the place the owner
+  returns to, and what the session starts in.
+
+  Maximized rather than true fullscreen, deliberately. The desktop
+  underneath is meant to stay reachable but quiet; a fullscreen window
+  hides the system bar the owner may need to get back to something else,
+  which turns "quiet" into "hidden" and makes the device feel like it is
+  trapping them.
+
+- **Minimized.** A small floating pill -- the orb and one input -- that
+  stays on top of whatever else is open and follows the owner across
+  workspaces. They drag it wherever it suits them and it is still there
+  next time the device starts.
+
+  This is the mode that makes the assistant an assistant rather than a
+  destination. Someone reading an invoice in a browser or typing into a
+  spreadsheet can ask a question without leaving what they are doing,
+  which is exactly the moment they most want to.
+
+  It grows while there is something to read -- the last few turns of the
+  conversation, a permission card, a question waiting for an answer --
+  and settles back to a single line when the exchange is done. The pill
+  is never a window the owner has to manage: no title bar, no scrollback
+  to hunt through, no second copy of the conversation. It is the same
+  conversation, seen through a smaller opening.
+
+Both modes carry the orb, and switching between them never interrupts a
+reply in progress. Those two constraints are what make this one shell in
+two shapes rather than two products: the orb is the device's presence and
+a screen without it reads as switched off, and a reply that dies because
+the owner wanted their screen back would teach them not to use the pill
+at all.
+
+The transition is a resize, not a new window. What the owner was reading
+is what they keep reading.
+
 ## The conversation surface
 
 Chat is the product's primary surface -- not a feature screen, the thing
@@ -190,11 +233,78 @@ chat app skin:
 - **User messages are quiet.** Right-aligned, `--surface` pill, smaller
   type in `--text-secondary`. The user's words are context; the reply is
   the content.
+- **The reply is rendered, not dumped.** Assistant text is markdown:
+  paragraphs, lists, emphasis, inline code, and fenced code blocks with a
+  way to copy them. A list that arrives as `- one` `- two` and renders as
+  literal hyphens tells the owner the device is showing them raw machine
+  output, which is the opposite of what this product claims to be.
+
+  Markdown adds structure, not chrome. The bare-text-on-canvas rule above
+  is unchanged: no bubble, no avatar, no card around a reply. Headings
+  are quieter than the body would suggest -- a reply is speech, not a
+  document, and a large heading in a narrow pane reads as shouting. Only
+  the subset named here is rendered; anything wider is a request to
+  revisit this section, not a component to add on the day.
+
+  Anything wide -- a code block, a table -- scrolls inside its own
+  container. The pane has a measure that suits bare prose and nothing is
+  allowed to widen it.
 - **Streaming is visible.** Tokens append as they arrive -- no spinner,
   no "typing..." placeholder. Before the first token the orb shifts to
   its thinking rhythm (per Motion); while tokens flow it speaks; idle
   when done. The orb's state IS the status indicator; nothing textual
   duplicates it.
+- **Work is visible, quietly.** When the device does something rather
+  than just answering -- reads a file, runs a command, searches -- it
+  says so on one `--text-secondary` line in the flow: "Looked through
+  your files." One line per action, in the owner's language, expandable
+  to the detail for anyone who wants it and silent about it for everyone
+  else.
+
+  This is not a progress indicator and must never become one. The orb
+  already says the device is working; these lines say *what* it did, which
+  is a different question and the one that earns trust. A device that goes
+  quiet for twenty seconds and then produces an answer is asking to be
+  taken on faith. Collapsed by default, because the owner asked a
+  question, not for a log.
+- **Permission is asked in the conversation.** When the device needs
+  consent before doing something consequential, the request appears in
+  the flow where the exchange is happening -- not as a modal over it,
+  and not as a toast.
+
+  Plain language first: what it is about to do and why, in a sentence the
+  owner can actually judge. The literal command sits behind a disclosure
+  for anyone who wants it; constitution.md forbids surfacing internals
+  unasked, and a shell command presented as the question is a decision
+  the owner has no way to make. The choices are written the same way --
+  "Just this once", "Yes, for now", "Always allow this", "No" -- and the
+  device only ever offers the ones actually available for that request.
+
+  Once answered, the card collapses to one quiet line recording what the
+  owner chose. A permission that vanishes without trace leaves them with
+  no way to know what they agreed to.
+- **A real choice is answerable by tapping, and it should be rare.**
+  When the device offers a genuine choice -- between two folders it has
+  already found, or between going ahead and not -- the answers appear as
+  chips under the reply: at most four, the one it would pick itself first
+  and visibly so, and always the option of ignoring them and typing
+  instead. Tapping sends that answer as the owner's message, so it
+  becomes an ordinary turn in the conversation rather than a form field.
+
+  The restraint is the design, not a limitation of it. Chips on every
+  question turn a conversation into a form, and this surface exists
+  precisely because a form is the wrong shape for what the device does. A
+  question with its answers pinned underneath also stops being a
+  question: the owner reads the list as what the device is willing to
+  hear and picks the nearest item instead of saying what is actually
+  true, which costs more than the typing ever saved. So the rule is that
+  the device asks plainly by default, and names the answers only when
+  they *are* the question, or when the owner has visibly stalled on it.
+  Where that judgement lives is `brain/chat-protocol.md`, because it is a
+  question about how the device speaks.
+
+  They appear only once the reply is complete; a half-arrived question
+  flickering into buttons is worse than waiting a beat for them.
 - **One input, one action.** A single quiet input bar pinned at the
   bottom, send on Enter. No toolbar, no attach button, no file picker,
   no model picker -- routing is the device's decision
@@ -211,9 +321,23 @@ chat app skin:
   other side of the window. Dismissing the chip deselects those rows
   too: two views of one selection must never disagree.
 
-  What reaches the assistant is names and the folder they sit in, never
-  a path. A path in the model's context reliably comes back out in a
-  reply, and constitution.md forbids showing the owner one.
+  What reaches the assistant is the selection written from the owner's
+  own files downward -- `Documents/Invoices/june.xlsx` -- and the folder
+  they are currently looking at, on every turn. Never an absolute path:
+  nothing above the owner's home is the device's business to mention, and
+  it is not somewhere they can navigate to anyway.
+
+  An earlier version of this rule sent bare filenames and no path at all,
+  reasoning that a path in the model's context reliably comes back out in
+  a reply and constitution.md forbids showing the owner one. The
+  observation was right; the remedy was aimed at the wrong layer. Names
+  alone leave the device unable to act on what the owner just pointed at
+  -- two files called `invoice.xlsx` in different folders are one
+  question it cannot answer -- so it guesses, which is the failure this
+  system cares about most. The device now knows which thing is meant, and
+  the rule it must follow is that it never *says* a path back. That
+  belongs in constitution.md, where behaviour is specified, rather than
+  being enforced by keeping the device ignorant.
 
   This supersedes an earlier "no attachments" rule, and the distinction
   is the whole point rather than a loophole: there is no picker and no
@@ -258,10 +382,11 @@ files are their own, they already have a shape, and a surface that
 paraphrases that shape makes their device *harder* to reason about, not
 easier. Familiarity is the accessibility win here, not abstraction.
 
-The owner has no other way to reach their files. The kiosk session runs
-this shell and nothing else -- no desktop, no terminal, no second file
-manager to fall back on. Every affordance they need must exist here, and
-every one they don't need is weight they carry.
+This is where the owner reaches their files. A real desktop does run
+underneath and it has a file manager of its own, but reaching for it
+means leaving the assistant, and the whole product claim is that they
+never have to. Every affordance they need must exist here, and every one
+they don't need is weight they carry.
 
 - **Show what is actually there.** Real filenames with their extensions,
   real sizes, real dates. `price-list-2026.xlsx` is
@@ -364,7 +489,7 @@ What survives from that reasoning, and still holds:
 
 System font stack (`-apple-system, "Segoe UI", Roboto, sans-serif` plus
 platform fallbacks), not a bundled custom webfont. This is a deliberate
-choice tied to task 7's language requirement: the device needs to render
+choice tied to the language requirement: the device needs to render
 Indonesian, English, and likely Chinese/Japanese/Korean/Thai/Vietnamese
 script correctly. Bundling one custom font with full coverage for all of
 those scripts would be large and still worse than each OS's own
@@ -413,6 +538,7 @@ Every animation here honours `prefers-reduced-motion`.
   plus an easy way to pull them off the device when something goes wrong
   is the substitute.
 - **`tauri-plugin-store`** for non-secret preferences (selected language,
-  selected persona, the owner-given agent name). Deliberately NOT used
-  for the OpenRouter API key --
-  that needs OS-keyring-backed storage (task 016), not a plain JSON file.
+  selected persona, the owner-given agent name, which window mode the
+  device was last in and where the pill was sitting). Deliberately NOT
+  used for the OpenRouter API key -- that needs OS-keyring-backed
+  storage, not a plain JSON file.

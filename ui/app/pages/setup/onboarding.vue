@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { Channel, invoke } from "@tauri-apps/api/core";
-import { waitForAgentReady } from "~/lib/agentStatus";
-import { agentErrorMessage } from "~/lib/agentErrors";
+// The guided setup conversation. Same surface as the running device's
+// chat -- the composable it shares is what makes them feel continuous --
+// with the two things that are genuinely setup's own: the shell counts
+// the questions, and the shell decides when the interview is over.
+
+import { parseReply, streamingText } from "~/lib/chatProtocol";
 import {
   completeOnboarding,
   getOnboardingQuestionCount,
@@ -10,110 +13,91 @@ import {
 
 definePageMeta({ layout: false });
 
-type Entry =
-  | { kind: "user"; content: string }
-  | { kind: "assistant"; content: string }
-  | { kind: "error"; content: string };
+const {
+  entries,
+  input,
+  busy,
+  daemonError,
+  orbState,
+  connect,
+  runTurn,
+  send,
+  answerApproval,
+} = useConversation("onboarding");
 
-type StreamEvent =
-  | { type: "token"; content: string }
-  | { type: "done" }
-  | { type: "error"; message: string };
-
-const entries = ref<Entry[]>([]);
-const input = ref("");
-const busy = ref(false);
-const streaming = ref(false);
 const finished = ref(false);
-const daemonError = ref<string | null>(null);
 const questionCount = ref(0);
 const scroller = ref<HTMLElement | null>(null);
 
-const orbState = computed(() =>
-  busy.value ? (streaming.value ? "speaking" : "thinking") : "idle",
+const lastAssistant = computed(() => {
+  for (let i = entries.value.length - 1; i >= 0; i -= 1) {
+    const turn = entries.value[i];
+    if (turn?.kind === "assistant") return turn;
+    if (turn?.kind === "user") return null;
+  }
+  return null;
+});
+
+// Most setup questions are answerable with a yes or a no, and this is
+// where a tap matters most: fifteen questions put to someone who has
+// owned the device for minutes and may be answering in their second
+// language.
+const options = computed(() =>
+  busy.value || finished.value || !lastAssistant.value
+    ? []
+    : parseReply(lastAssistant.value.content).options,
 );
+
+function bodyText(content: string) {
+  return busy.value ? streamingText(content) : parseReply(content).text;
+}
 
 async function autoscroll() {
   await nextTick();
   scroller.value?.scrollTo({ top: scroller.value.scrollHeight });
 }
 
-async function runTurn(content?: string) {
-  if (busy.value || finished.value) return;
-  busy.value = true;
-  streaming.value = false;
-  if (content) {
-    entries.value.push({ kind: "user", content });
-  }
-  entries.value.push({ kind: "assistant", content: "" });
-  const replyIndex = entries.value.length - 1;
-  await autoscroll();
+watch(entries, autoscroll, { deep: true });
+watch(options, autoscroll);
 
-  const onEvent = new Channel<StreamEvent>();
-  onEvent.onmessage = (event) => {
-    const reply = entries.value[replyIndex];
-    if (!reply) return;
-    if (event.type === "token") {
-      streaming.value = true;
-      if (reply.kind === "assistant") reply.content += event.content;
-      autoscroll();
-    } else if (event.type === "error") {
-      entries.value[replyIndex] = {
-        kind: "error",
-        content: agentErrorMessage("setup", event.message),
-      };
-      autoscroll();
-    }
-  };
-
-  try {
-    const profileCommitted = await invoke<boolean>("agent_onboarding_chat", {
-      input: content ?? null,
-      questionCount: questionCount.value,
-      onEvent,
-    });
-    const reply = entries.value[replyIndex];
-    if (reply && reply.kind === "assistant" && reply.content === "") {
-      entries.value[replyIndex] = {
-        kind: "error",
-        content: "The assistant returned no response.",
-      };
-      return;
-    }
-    if (profileCommitted) {
-      await completeOnboarding();
-      finished.value = true;
-    } else {
-      questionCount.value = Math.min(15, questionCount.value + 1);
-      await setOnboardingQuestionCount(questionCount.value);
-    }
-  } catch (error) {
-    entries.value[replyIndex] = {
-      kind: "error",
-      content: agentErrorMessage("setup", error),
-    };
-  } finally {
-    busy.value = false;
-    streaming.value = false;
-    await autoscroll();
+/// The count is the shell's, not the model's: onboarding.md bounds the
+/// interview at fifteen questions and the agent is told the running
+/// total as an authoritative fact rather than asked to keep it.
+async function recordTurn(profileCommitted: boolean) {
+  if (profileCommitted) {
+    await completeOnboarding();
+    finished.value = true;
+    return;
   }
+  questionCount.value = Math.min(15, questionCount.value + 1);
+  await setOnboardingQuestionCount(questionCount.value);
 }
 
-async function send() {
-  const content = input.value.trim();
-  if (!content || busy.value || finished.value) return;
-  input.value = "";
-  await runTurn(content);
+async function onSubmit() {
+  if (finished.value) return;
+  await recordTurn(await send());
+  await autoscroll();
+}
+
+async function onPick(option: string) {
+  if (finished.value) return;
+  await recordTurn(await send(option));
+  await autoscroll();
 }
 
 onMounted(async () => {
+  await connect();
+  if (daemonError.value !== null) return;
+  questionCount.value = await getOnboardingQuestionCount();
+  // The agent speaks first: nobody should face an empty prompt on a
+  // device they have owned for a minute.
   try {
-    await waitForAgentReady();
-    questionCount.value = await getOnboardingQuestionCount();
-    await runTurn();
-  } catch (error) {
-    daemonError.value = agentErrorMessage("setup", error);
+    await recordTurn(await runTurn(null));
+  } catch {
+    // runTurn already put the failure in the conversation, where
+    // errors are spoken rather than swallowed.
   }
+  await autoscroll();
 });
 </script>
 
@@ -127,14 +111,32 @@ onMounted(async () => {
       <p v-if="daemonError" class="error" role="alert">{{ daemonError }}</p>
       <template v-for="(entry, index) in entries" :key="index">
         <p v-if="entry.kind === 'user'" class="user">{{ entry.content }}</p>
-        <p v-else-if="entry.kind === 'assistant'" class="assistant">
+        <MessageBody
+          v-else-if="entry.kind === 'assistant' && entry.content !== ''"
+          :text="bodyText(entry.content)"
+        />
+        <ToolRow
+          v-else-if="entry.kind === 'tool'"
+          :summary="entry.summary"
+          :phase="entry.phase"
+        />
+        <ApprovalCard
+          v-else-if="entry.kind === 'approval'"
+          :description="entry.description"
+          :command="entry.command"
+          :choices="entry.choices"
+          :answer="entry.answer"
+          @answer="(choice) => answerApproval(entry, choice)"
+        />
+        <p v-else-if="entry.kind === 'error'" class="error" role="alert">
           {{ entry.content }}
         </p>
-        <p v-else class="error" role="alert">{{ entry.content }}</p>
       </template>
+
+      <OptionChips :options="options" :disabled="busy" @pick="onPick" />
     </section>
 
-    <form v-if="!finished" @submit.prevent="send">
+    <form v-if="!finished" @submit.prevent="onSubmit">
       <input
         v-model="input"
         type="text"
@@ -184,14 +186,6 @@ header {
   flex-direction: column;
   gap: 1.1rem;
   padding: 0.5rem 1.5rem;
-}
-
-.assistant {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 1rem;
-  line-height: 1.65;
-  white-space: pre-wrap;
 }
 
 .user {

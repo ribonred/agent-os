@@ -127,6 +127,19 @@ answer, to be taken and built on rather than re-asked in other words. Use
 an open question only where a yes/no genuinely cannot get there: what the
 owner calls their customers has no yes/no form.
 
+`chat-protocol.md` applies here as it does everywhere else, including
+its restraint: ask the question, and do not attach the answers to it.
+Fifteen questions each carrying a row of buttons is a form, which this
+conversation is specifically not allowed to become — and a question with
+its answers pinned underneath invites the owner to pick the nearest one
+rather than tell you what is true, which is the failure this whole
+section exists to prevent.
+
+Where it does earn its place is when the owner stalls: they ask what you
+mean, answer something that doesn't resolve the question, or say they
+aren't sure. Naming the likely answers then is help, because the problem
+was never typing — it was not knowing what you were asking.
+
 ## The agent learns its device at the same time
 
 At the start of the guided conversation, load the shipped device-services

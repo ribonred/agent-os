@@ -16,6 +16,12 @@ UI_DEV_URL ?= http://localhost:3000
 
 UI_BUNDLE ?= $(REPO)/ui/src-tauri/target/release/ui
 
+# Where setup state actually lives, for `make dev-reset`. The shell's
+# store is named by the app identifier in tauri.conf.json; the agent's
+# memory of its owner is Hermes' own, written by the memory tool.
+HERMES_HOME ?= $(HOME)/.hermes
+SHELL_STORE ?= $(HOME)/.local/share/com.agenticos.shell/settings.json
+
 ROOTFS ?= $(REPO)/build/rootfs
 IMAGE  ?= $(REPO)/build/agentic-os.img
 
@@ -38,7 +44,7 @@ BROWSER_SKIP ?= 0
 # clone and never written into the image. Leave empty to use HTTPS.
 HERMES_SSH_KEY ?=
 
-.PHONY: help dev gui hermes-env test ui-bundle rootfs image golden clean-image \
+.PHONY: help dev gui dev-reset hermes-env test ui-bundle rootfs image golden clean-image \
         build-image rootfs-docker image-docker golden-docker shell-docker
 
 help: ## List available targets
@@ -69,6 +75,23 @@ gui: ## Run the Tauri app (expects the Hermes gateway; see `make dev`)
 	  AGENTIC_OS_HERMES_URL=$(HERMES_URL) \
 	  bun run tauri dev
 
+dev-reset: ## Clear setup so the next launch opens on the first-boot screens
+	# Setup state legitimately lives in two places, and clearing one
+	# leaves a device that interviews an owner it still remembers: the
+	# shell records that setup finished, and the agent writes the
+	# owner's profile into its own long-term memory. Both go.
+	#
+	# Development only. Nothing on a shipped device can reach this, and
+	# the in-app command behind it does not exist in a release build.
+	@echo "This will clear:"
+	@echo "  - the shell's setup state  ($(SHELL_STORE))"
+	@echo "  - the agent's memory of its owner  ($(HERMES_HOME)/USER.md)"
+	@printf "Type 'reset' to confirm: "
+	@read -r answer; [ "$$answer" = "reset" ] || { echo "Nothing was changed."; exit 1; }
+	@rm -f "$(SHELL_STORE)" && echo "cleared: $(SHELL_STORE)"
+	@rm -f "$(HERMES_HOME)/USER.md" && echo "cleared: $(HERMES_HOME)/USER.md"
+	@echo "Next launch starts at the language screen."
+
 hermes-env: ## Show which gateway URL/key the GUI would resolve (key masked)
 	@echo "url: $(HERMES_URL)"
 	@if [ -n "$$AGENTIC_OS_HERMES_KEY" ]; then src="AGENTIC_OS_HERMES_KEY"; key="$$AGENTIC_OS_HERMES_KEY"; \
@@ -81,9 +104,14 @@ hermes-env: ## Show which gateway URL/key the GUI would resolve (key masked)
 	else echo "key: NOT FOUND -- set AGENTIC_OS_HERMES_KEY or enable the API server in ~/.hermes/.env" >&2; exit 1; fi
 	@curl -fsS -m 2 $(HERMES_URL)/health || { echo "gateway not answering at $(HERMES_URL)" >&2; exit 1; }
 
-test: ## All Rust crate tests + UI typecheck
+test: ## All Rust crate tests + the shell's tests + UI typecheck
 	cd agent-core/hw-probe && cargo test
 	cd agent-core/cloud-key && cargo test
+	# The shell's own Rust: event translation, the setup overlay, the
+	# path sentence, the approvals setting. The --ignored tests need a
+	# live gateway and are opt-in.
+	cd ui/src-tauri && cargo test
+	cd ui && bun test
 	cd ui && bun run check
 
 rootfs: ## Build the golden rootfs (stage 1 -- needs root and a network)
@@ -149,12 +177,13 @@ ui-bundle: ## Build the release Tauri binary with the system toolchain
 	# link. ui/ is built with the system toolchain, always, and the
 	# result is copied straight into the image; on a normal FHS distro it
 	# needs no interpreter or RPATH rewriting.
-	# The device overlay makes the window fullscreen/undecorated so the
-	# assistant fills the screen; dev (`make gui`) keeps a normal window.
+	# One config for the device and for dev: the window's shape is a
+	# runtime setting the owner controls (full or the floating pill), not
+	# a build-time overlay, so both build the same binary.
 	cd ui && env -i HOME="$$HOME" USER="$$USER" TERM="$$TERM" \
 	  PATH="$$HOME/.bun/bin:$$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin" \
 	  NUXT_TELEMETRY_DISABLED=1 \
-	  bun run tauri build --no-bundle --config src-tauri/tauri.kiosk.conf.json
+	  bun run tauri build --no-bundle
 	# Canary for the stale-cache failure: the orb's scoped-style
 	# attribute must pair up between built CSS and built JS markup.
 	@hash=$$(grep -rho '\.orb\[data-v-[a-f0-9]*\]' ui/dist/_nuxt/*.css | sort -u | sed 's/.*\[\(data-v-[a-f0-9]*\)\]/\1/'); \

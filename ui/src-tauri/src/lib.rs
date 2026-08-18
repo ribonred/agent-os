@@ -1,12 +1,9 @@
 mod agent;
+mod approval_mode;
 mod cloud_key;
+mod dev;
 mod shelf;
-
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
+mod window_mode;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -28,7 +25,7 @@ pub fn run() {
     }
 
     tauri::Builder::default()
-        .setup(|_app| {
+        .setup(|app| {
             #[cfg(target_os = "linux")]
             {
                 use gtk::glib::object::ObjectExt;
@@ -42,6 +39,18 @@ pub fn run() {
                     settings.set_property("gtk-xft-dpi", 96 * 1024 + 1);
                     settings.set_property("gtk-xft-dpi", 96 * 1024);
                 }
+            }
+
+            // The device opens in whatever shape it was last left in.
+            // Applied here rather than from the frontend so the window is
+            // the right size and place before anything is painted --
+            // starting full and shrinking to a pill a moment later is a
+            // visible flinch on every launch.
+            let mode = window_mode::current(app.handle());
+            if let Err(error) = window_mode::apply(app.handle(), mode) {
+                // Not fatal: a window that ignored one geometry call is
+                // still a usable window, and the owner can switch modes.
+                log::warn!("could not restore the window mode: {error}");
             }
             Ok(())
         })
@@ -67,13 +76,21 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(agent::AgentSession::default())
         .invoke_handler(tauri::generate_handler![
-            greet,
             cloud_key::cloud_key_save,
             cloud_key::cloud_key_status,
             cloud_key::cloud_key_delete,
             agent::agent_status,
             agent::agent_chat,
             agent::agent_onboarding_chat,
+            agent::agent_approve,
+            agent::agent_stop,
+            approval_mode::approval_mode_get,
+            approval_mode::approval_mode_set,
+            window_mode::window_mode_get,
+            window_mode::window_mode_set,
+            window_mode::window_pill_expand,
+            window_mode::window_drag,
+            dev::dev_reset_setup,
             shelf::shelf_list
         ])
         .run(tauri::generate_context!())
