@@ -83,7 +83,7 @@ the switch) accordingly — never hardcoded per SKU.
 
 Apply this on every edit, not just when asked.
 
-## UI validation — Playwright MCP
+## UI validation
 
 `nuxt typecheck` and a successful build catch type/syntax errors. They do
 not catch layout or visual bugs — a component can typecheck cleanly and
@@ -92,12 +92,69 @@ still render nothing like what the CSS says it should. For any change to
 glow renders," "the button is visible"), verify it by actually looking,
 not by inferring from a clean build.
 
+There are two ways to look, and picking the wrong one wastes the pass.
+
+**Does the change depend on the native half?** A Tauri command's real
+return value, the window modes, the store on disk, a gateway round-trip,
+or how the page behaves in WebKitGTK — that is `make ui-drive`. Anything
+else, a browser is the quicker loop.
+
+### The real app — `make ui-drive`
+
+Drives the built binary itself over WebDriver ([ui/dev/drive.py](ui/dev/drive.py)).
+The app runs unmodified: nothing is added to the shipped binary to make
+this work. Import `App` from that file for a scenario of your own —
+`js()`, `click()`, `type_into()`, `screenshot()`, `settle()`, and `seed()`
+to write the store before launch so a run does not sit through the setup
+conversation.
+
+Two one-off installs, neither of which ships: `sudo apt install
+webkitgtk-webdriver` (the package is *not* the `webkit2gtk-driver` the
+Tauri docs name) and `cargo install tauri-driver`.
+
+- **It writes to a throwaway `XDG_DATA_HOME` by default.** Leave it that
+  way. An automated pass once wrote its own window geometry into the real
+  settings and the app opened wrong afterwards, which is a confusing
+  thing to debug on top of whatever you were already debugging.
+- **A scenario that talks to the gateway leaves real conversations
+  behind.** They show up in the owner's own list. Delete the ones you
+  created, and only those.
+- The window appears on the real display, so it is visible to whoever is
+  at the machine.
+
+`app.log()` is the first thing to read when a screenshot doesn't explain
+itself. It returns both halves, labelled: `[app]` is the shell's own log
+file, `[page]` is the browser console, captured in the page because
+WebKitGTK does not expose it. Only what happens after the app starts is
+in `[page]` — for something thrown during startup, `[app]` and the
+screenshot are what you have.
+
+`WEBKIT_INSPECTOR_SERVER=127.0.0.1:9222` does make the app listen on that
+port, but it speaks WebKit's own inspector protocol — Chrome and Firefox
+get nothing from it, and it was not worth chasing further. `make
+ui-drive` is the supported route.
+
+### The browser — for layout alone
+
 **What it is**: Playwright MCP — browser automation tools (navigate,
 screenshot, evaluate JS/computed styles, click, fill forms). Tool names
 are deferred; load them first with
 `ToolSearch("select:mcp__plugin_playwright_playwright__browser_navigate,...")`
 before first use each session — they don't appear in the default tool
-list.
+list. It is not always registered; when it isn't, a local Playwright
+install driving Chromium does the same job.
+
+Nothing native exists in a browser, so `invoke` fails and the app either
+redirects to setup or renders empty. A scenario has to stub
+`window.__TAURI_INTERNALS__.invoke` before the app's own scripts run.
+Two things that cost time when stubbing it: `plugin:store|get` returns a
+`[value, exists]` **tuple**, not a bare value, and `plugin:store|load`
+must return a resource id rather than null. Both fail by silently
+redirecting to the language screen.
+
+Chromium is not the engine the device ships. It agreeing with the design
+is evidence about Chromium; use `make ui-drive` before claiming the
+device renders something correctly.
 
 **Workflow**: navigate to the running page, take a screenshot, `Read` it
 as an image. If something looks wrong and the screenshot alone doesn't

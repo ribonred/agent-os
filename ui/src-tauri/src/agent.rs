@@ -16,7 +16,7 @@ use tokio::sync::Mutex;
 
 // Mirrors the gateway's default bind; the env override serves dev setups
 // pointing at a non-default port.
-fn base_url() -> String {
+pub(crate) fn base_url() -> String {
     std::env::var("AGENTIC_OS_HERMES_URL").unwrap_or_else(|_| "http://127.0.0.1:8642".to_string())
 }
 
@@ -222,17 +222,25 @@ fn onboarding_overlay(app: &tauri::AppHandle, question_count: u8) -> String {
     .join("\n\n")
 }
 
-fn stored_onboarding_session(app: &tauri::AppHandle) -> Option<String> {
+/// Which conversation the device comes back to. Setup keeps its own so a
+/// restart mid-interview resumes the interview; normal chat keeps one so
+/// the device reopens what the owner was last saying rather than
+/// silently starting over every time it is switched on.
+pub const CHAT_SESSION_KEY: &str = "chatSessionId";
+const ONBOARDING_SESSION_KEY: &str = "onboardingSessionId";
+
+pub fn stored_session(app: &tauri::AppHandle, key: &str) -> Option<String> {
     use tauri_plugin_store::StoreExt;
     app.store("settings.json")
         .ok()?
-        .get("onboardingSessionId")?
+        .get(key)?
         .as_str()
         .map(str::to_string)
 }
 
-fn save_onboarding_session(
+pub fn save_session(
     app: &tauri::AppHandle,
+    key: &str,
     session_id: Option<&str>,
 ) -> Result<(), String> {
     use tauri_plugin_store::StoreExt;
@@ -240,9 +248,9 @@ fn save_onboarding_session(
         .store("settings.json")
         .map_err(|e| format!("could not open setup store: {e}"))?;
     if let Some(session_id) = session_id {
-        store.set("onboardingSessionId", session_id);
+        store.set(key, session_id);
     } else {
-        store.delete("onboardingSessionId");
+        store.delete(key);
     }
     store
         .save()
@@ -264,7 +272,7 @@ fn key_from_env_file(path: &std::path::Path) -> Option<String> {
 ///    by the installer, handed to this user via tmpfiles
 /// 3. ~/.hermes/.env -- dev machines: the local Hermes install's own
 ///    config, so `make dev` needs no key copying at all
-fn api_key() -> Result<String, String> {
+pub(crate) fn api_key() -> Result<String, String> {
     if let Ok(key) = std::env::var("AGENTIC_OS_HERMES_KEY") {
         if !key.is_empty() {
             return Ok(key);
@@ -285,7 +293,7 @@ fn api_key() -> Result<String, String> {
         .to_string())
 }
 
-fn http_client() -> Client<HttpConnector, Full<Bytes>> {
+pub(crate) fn http_client() -> Client<HttpConnector, Full<Bytes>> {
     Client::builder(TokioExecutor::new()).build_http()
 }
 
@@ -294,7 +302,7 @@ fn http_client() -> Client<HttpConnector, Full<Bytes>> {
 /// includes the new profile.
 #[derive(Default)]
 pub struct AgentSession {
-    chat: Mutex<Option<String>>,
+    pub(crate) chat: Mutex<Option<String>>,
     onboarding: Mutex<Option<String>>,
 }
 
@@ -363,8 +371,22 @@ async fn post_json(
     Ok((status, body.to_vec()))
 }
 
-async fn create_session(key: &str) -> Result<String, String> {
-    let payload = serde_json::json!({ "model": model_id() });
+/// `source` tags the conversation so the shell can tell its own apart
+/// from everything else the gateway stores. Only the owner's chat gets a
+/// tag: setup, and anything else on the box, stay on the gateway's
+/// default, so the list of conversations the owner is offered contains
+/// conversations they actually had.
+///
+/// The gateway validates this against a fixed set and silently falls
+/// back to its default on anything else, so the value here is not free
+/// text -- changing it means checking it is still one it accepts.
+pub const CHAT_SOURCE: &str = "desktop";
+
+async fn create_session(key: &str, source: Option<&str>) -> Result<String, String> {
+    let mut payload = serde_json::json!({ "model": model_id() });
+    if let Some(source) = source {
+        payload["source"] = serde_json::Value::String(source.to_string());
+    }
     let (status, body) = post_json("/api/sessions", key, &payload, false).await?;
     if !status.is_success() {
         return Err(format!(
@@ -701,11 +723,12 @@ async fn run_turn(
     input: String,
     overlay: Option<String>,
     key: &str,
+    source: Option<&str>,
     session_id: &mut Option<String>,
     on_event: &Channel<serde_json::Value>,
 ) -> Result<String, String> {
     if session_id.is_none() {
-        *session_id = Some(create_session(key).await?);
+        *session_id = Some(create_session(key, source).await?);
     }
     let id = session_id.as_ref().expect("session id set above").clone();
 
@@ -747,23 +770,53 @@ pub async fn agent_chat(
     on_event: Channel<serde_json::Value>,
 ) -> Result<(), String> {
     let key = api_key()?;
-    let overlay = chat_overlay(&app);
 
     // Where the owner was and what they had selected when they pressed
-    // send, said in plain language. Prepended to the turn rather than
-    // folded into the system overlay: it is context for this one
-    // question, not a standing fact about the device.
+    // send, said in plain language. This rides in the per-turn system
+    // overlay rather than being glued to the front of what the owner
+    // typed, and the difference is visible to them: the gateway stores
+    // the turn's input as the owner's own message, uses its opening
+    // words to name the conversation, and shows the same text as the
+    // one-line summary in the list of earlier conversations. Prepending
+    // to the input put "The owner is asking about ..." into all three,
+    // so a conversation was titled and summarised by the shell's
+    // plumbing instead of by what was said. The overlay is not stored as
+    // a message and reaches the model just the same.
     let context = crate::shelf::context_sentence(
         context_paths.as_deref().unwrap_or(&[]),
         current_folder.as_deref(),
     );
-    let input = match context {
-        Some(context) => format!("{context}\n\n{input}"),
-        None => input,
+    let overlay = match context {
+        Some(context) => format!("{}\n\n{context}", chat_overlay(&app)),
+        None => chat_overlay(&app),
     };
 
     let mut session_id = session.chat.lock().await;
-    run_turn(input, Some(overlay), &key, &mut session_id, &on_event).await?;
+    // The conversation the device was last in, if this process has not
+    // been told about it yet. Held here and not only where the pane asks
+    // for it, because whether it gets asked depends on which surface the
+    // device happened to open in -- and a turn sent from the pill on a
+    // device that started minimized would otherwise quietly open a new
+    // conversation and lose the way back to the old one.
+    if session_id.is_none() {
+        *session_id = stored_session(&app, CHAT_SESSION_KEY);
+    }
+    let existing = session_id.is_some();
+    let id = run_turn(
+        input,
+        Some(overlay),
+        &key,
+        Some(CHAT_SOURCE),
+        &mut session_id,
+        &on_event,
+    )
+    .await?;
+    // Remembered only once it exists, so the device comes back to this
+    // conversation rather than to an empty one. Nothing to write when the
+    // turn continued a conversation that was already stored.
+    if !existing {
+        save_session(&app, CHAT_SESSION_KEY, Some(&id))?;
+    }
     Ok(())
 }
 
@@ -821,7 +874,7 @@ pub async fn agent_onboarding_chat(
     let overlay = onboarding_overlay(&app, question_count.min(15));
     let mut session_id = session.onboarding.lock().await;
     if session_id.is_none() {
-        *session_id = stored_onboarding_session(&app);
+        *session_id = stored_session(&app, ONBOARDING_SESSION_KEY);
     }
     let continuing = session_id.is_some();
     let input = input
@@ -833,20 +886,22 @@ pub async fn agent_onboarding_chat(
                 ONBOARDING_START.trim().to_string()
             }
         });
-    let id = match run_turn(input, Some(overlay), &key, &mut session_id, &on_event).await {
+    // No source tag: setup is not a conversation the owner ever goes
+    // back to, and it must not appear among the ones they can.
+    let id = match run_turn(input, Some(overlay), &key, None, &mut session_id, &on_event).await {
         Ok(id) => id,
         Err(error) => {
             if session_id.is_none() {
-                save_onboarding_session(&app, None)?;
+                save_session(&app, ONBOARDING_SESSION_KEY, None)?;
             }
             return Err(error);
         }
     };
-    save_onboarding_session(&app, Some(&id))?;
+    save_session(&app, ONBOARDING_SESSION_KEY, Some(&id))?;
     let transcript = session_messages(&key, &id).await?;
     let committed = has_committed_user_memory_write(&transcript);
     if committed {
-        save_onboarding_session(&app, None)?;
+        save_session(&app, ONBOARDING_SESSION_KEY, None)?;
         *session_id = None;
     }
     Ok(committed)
@@ -1074,7 +1129,7 @@ mod tests {
     #[ignore]
     async fn live_gateway_roundtrip() {
         let key = api_key().expect("no key resolvable");
-        let session = create_session(&key).await.expect("session create failed");
+        let session = create_session(&key, Some(CHAT_SOURCE)).await.expect("session create failed");
         assert!(session.starts_with("api_"), "unexpected session id: {session}");
 
         let (tokens, saw_done) =
@@ -1092,7 +1147,7 @@ mod tests {
     #[ignore]
     async fn live_gateway_transcript_fallback_finds_the_reply() {
         let key = api_key().expect("no key resolvable");
-        let session = create_session(&key).await.expect("session create failed");
+        let session = create_session(&key, Some(CHAT_SOURCE)).await.expect("session create failed");
         let (tokens, _) =
             collect_live_run(&key, &session, "Reply with the single word: pong", None).await;
 
@@ -1205,7 +1260,7 @@ mod tests {
     #[ignore]
     async fn live_gateway_named_identity() {
         let key = api_key().expect("no key resolvable");
-        let session = create_session(&key).await.expect("session create failed");
+        let session = create_session(&key, Some(CHAT_SOURCE)).await.expect("session create failed");
         let overlay = compose_overlay(Some("Kirana"), Some("warm-patient"), Some("en")).unwrap();
 
         let (tokens, _) = collect_live_run(

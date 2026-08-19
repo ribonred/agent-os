@@ -15,7 +15,7 @@ The always-on product rules stay in `CLAUDE.md`.
 |---|---|
 | `taskmd` | Session start, what's next, `tasks/` |
 | `golden-image` | Image, packages, first-boot, registry |
-| `agentic-ui` | `ui/` screens, tokens, Playwright, `make dev` |
+| `agentic-ui` | `ui/` screens, tokens, verifying by looking, `make dev` |
 | `tauri-nuxt` | Rust host, invoke, window modes, WebKitGTK |
 | `product-ux` | Orb, conversation, setup, copy, anti-slop |
 | `commercial-hygiene` | Anything that could ship |

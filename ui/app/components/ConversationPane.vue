@@ -18,11 +18,29 @@ const {
   busy,
   daemonError,
   orbState,
+  sessionId,
   connect,
   send,
   answerApproval,
   stop,
+  restore,
+  openSession,
+  newConversation,
 } = useConversation();
+
+// The list of earlier conversations covers this pane while it is open.
+const history = ref(false);
+
+async function onOpenSession(id: string) {
+  await openSession(id);
+  history.value = false;
+  await autoscroll();
+}
+
+async function onNewConversation() {
+  history.value = false;
+  await newConversation();
+}
 const { set: setWindowMode, drag, toggleMaximize } = useWindowMode();
 
 // The top of the pane is this window's title bar, because the window
@@ -46,7 +64,13 @@ const scroller = ref<HTMLElement | null>(null);
 const { items: contextItems } = useContext();
 const hasContext = computed(() => contextItems.value.length > 0);
 
-onMounted(connect);
+onMounted(async () => {
+  await connect();
+  // Back where they left it, then scrolled to the end of it -- the
+  // owner returns to the last thing that was said, not to the first.
+  await restore();
+  await autoscroll();
+});
 
 /// The answers offered with the reply the owner is looking at -- only
 /// the last one, and only once it has finished arriving. A half-written
@@ -115,6 +139,29 @@ async function onPick(option: string) {
       <header @mousedown="onChromeMouseDown" @dblclick="onChromeDoubleClick">
         <PresenceOrb :size="56" :orb-state="orbState" />
         <div class="controls">
+          <!-- Starting a new subject and going back to an old one, side
+               by side: they are the same decision seen from either end,
+               and the owner reaches for whichever the moment calls for. -->
+          <button
+            type="button"
+            class="icon"
+            aria-label="Start a new conversation"
+            title="Start a new conversation"
+            :disabled="busy"
+            @click="onNewConversation"
+          >
+            ✎
+          </button>
+          <button
+            type="button"
+            class="icon"
+            aria-label="Earlier conversations"
+            title="Earlier conversations"
+            :aria-expanded="history"
+            @click="history = !history"
+          >
+            ☰
+          </button>
           <!-- Reachable but quiet, like the desktop underneath: there is
                no settings system here, only the few things the owner
                decides rather than asks for. -->
@@ -189,12 +236,26 @@ async function onPick(option: string) {
           Stop
         </button>
       </form>
+
+      <!-- While a reply is arriving the list still opens and reads, but
+           the rows do not respond: the reply has somewhere to land, and
+           a question the device asked has somewhere to be answered. -->
+      <HistoryDrawer
+        v-if="history"
+        :current="sessionId"
+        :disabled="busy"
+        @close="history = false"
+        @open="onOpenSession"
+      />
     </template>
   </aside>
 </template>
 
 <style scoped>
 .pane {
+  /* The list of earlier conversations covers this pane rather than
+     opening beside it, so it is positioned against this. */
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -258,8 +319,15 @@ header {
   cursor: pointer;
 }
 
-.icon:hover {
+.icon:hover:not(:disabled) {
   color: var(--text-primary);
+}
+
+/* Starting a new conversation mid-reply would leave the reply arriving
+   into a pane that is no longer showing it. */
+.icon:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .conversation {

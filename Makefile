@@ -44,7 +44,7 @@ BROWSER_SKIP ?= 0
 # clone and never written into the image. Leave empty to use HTTPS.
 HERMES_SSH_KEY ?=
 
-.PHONY: help dev gui dev-reset hermes-env test ui-bundle rootfs image golden clean-image \
+.PHONY: help dev gui dev-reset hermes-env test ui-drive ui-bundle rootfs image golden clean-image \
         build-image rootfs-docker image-docker golden-docker shell-docker
 
 help: ## List available targets
@@ -166,6 +166,17 @@ golden-docker: ui-bundle rootfs-docker image-docker ## Everything, built in the 
 
 shell-docker: build-image ## Interactive shell in the build container (debugging)
 	docker run --rm -it --privileged -v $(REPO):/repo -v /dev:/dev $(BUILD_IMAGE)
+
+ui-drive: ## Drive the built desktop app over WebDriver (see ui/dev/drive.py)
+	# The real binary, the real gateway, and WebKitGTK -- which is the
+	# engine the device ships and the half a browser cannot tell you
+	# anything about. Needs two one-off installs, neither of which ships:
+	#   sudo apt install webkitgtk-webdriver
+	#   cargo install tauri-driver
+	@command -v tauri-driver >/dev/null || { echo "missing: cargo install tauri-driver" >&2; exit 1; }
+	@command -v WebKitWebDriver >/dev/null || { echo "missing: sudo apt install webkitgtk-webdriver" >&2; exit 1; }
+	@test -x $(UI_BUNDLE) || { echo "no binary at $(UI_BUNDLE) -- run 'make ui-bundle' first" >&2; exit 1; }
+	@python3 $(REPO)/ui/dev/drive.py
 
 ui-bundle: ## Build the release Tauri binary with the system toolchain
 	# Clean caches first: a stale bundler cache once produced a build

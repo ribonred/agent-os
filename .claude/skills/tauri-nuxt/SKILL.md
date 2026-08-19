@@ -67,7 +67,7 @@ await invoke("command_name", { camelCaseArgs: value });
 ```
 
 Existing groups: `agent_*`, `cloud_key_*`, `approval_mode_*`,
-`window_mode_*`, `shelf_*`, `dev_reset_setup`.
+`window_mode_*`, `sessions_*`, `shelf_*`, `dev_reset_setup`.
 
 Secrets: OpenRouter key → OS keyring (`cloud-key` crate), never
 plugin-store. plugin-store is language, persona, window mode, pill
@@ -84,6 +84,10 @@ and WebKit scales the page to garbage. All three are required:
 
 Do not remove one "because the others should be enough." They were
 verified by removing them one at a time on a VM.
+
+`make ui-drive` prints `devicePixelRatio` every run for exactly this
+reason. A browser always reports a healthy value, so it can never tell
+you this is broken.
 
 `make ui-bundle` uses `env -i` + system rustup/bun and
 `--no-bundle`. The binary is copied into the image and links
@@ -106,14 +110,21 @@ already the right shape.
    `invoke` + capability only if a new permission is truly required.
 3. `cd ui && bun run check` and `cd ui/src-tauri && cargo test`
    (or `make test`).
-4. For layout/scale claims, follow `agentic-ui`'s isolated Playwright
-   rule. Never start a second Vite server on this tree.
+4. Anything on this page is the native half, so prove it with
+   `make ui-drive` rather than a browser: it drives the built binary
+   over WebDriver and can read what a command actually returned, what
+   `devicePixelRatio` really is, and which shape the window took. A
+   browser stubs all of that and will agree with you regardless.
+5. For pure layout/scale claims, follow `agentic-ui`'s isolated
+   Playwright rule. Never start a second Vite server on this tree.
 
 ## Gotchas
 
-- `tauri.kiosk.conf.json` is referenced by `make ui-bundle` but may
-  be absent in a given checkout. Do not invent a second product
-  window. Full vs pill is `window_mode.rs`.
+- There is one Tauri config. A kiosk overlay config used to exist and
+  was deleted with the compositor it served; the device and a dev
+  machine now run the same binary and differ only in stored state. Do
+  not reintroduce a second config or a second product window — full vs
+  pill is `window_mode.rs`.
 - `authors = ["you"]` in Cargo.toml is leftover template. Do not
   replace it with a personal name (commercial-hygiene).
 - Identifier is `com.agenticos.shell`.

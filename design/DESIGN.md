@@ -184,6 +184,24 @@ design surface with two states, and the owner moves between them freely:
   which turns "quiet" into "hidden" and makes the device feel like it is
   trapping them.
 
+  Undecorated does not mean fixed. A window with no decoration also has
+  no title bar to drag and no border to pull, and on a desktop where
+  every other window can be moved and sized to fit, one that cannot is
+  not minimal -- it is stuck. So the shell supplies both itself: the top
+  of the conversation pane behaves as the title bar (drag to move,
+  double-click to fill the screen or give it back), and a few pixels at
+  each edge and corner carry the resize cursor and hand the drag to the
+  window manager. Neither draws anything. The owner should find the
+  window behaves the way windows do, and never notice why.
+
+  A window the owner has sized themselves is the one they get back. The
+  shell remembers whether the full window was maximized and, when it was
+  not, where it sat and how big it was, so returning from the pill
+  restores what they left rather than filling the screen over the top of
+  whatever they had arranged. Only a device that has never been sized
+  falls back to maximized, which is the right first impression and a
+  poor second one.
+
 - **Minimized.** A small floating pill -- the orb and one input -- that
   stays on top of whatever else is open and follows the owner across
   workspaces. They drag it wherever it suits them and it is still there
@@ -198,8 +216,10 @@ design surface with two states, and the owner moves between them freely:
   conversation, a permission card, a question waiting for an answer --
   and settles back to a single line when the exchange is done. The pill
   is never a window the owner has to manage: no title bar, no scrollback
-  to hunt through, no second copy of the conversation. It is the same
-  conversation, seen through a smaller opening.
+  to hunt through, no second copy of the conversation, and no resize
+  border -- it sizes itself to what there is to read, and a hand-sized
+  pill would only fight that. It is the same conversation, seen through
+  a smaller opening.
 
 Both modes carry the orb, and switching between them never interrupts a
 reply in progress. Those two constraints are what make this one shell in
@@ -225,6 +245,62 @@ chat app skin:
   rail when someone wants the width, but the orb is never removed from
   the screen -- a screen with no orb reads as a device that is switched
   off.
+
+  The pane holds *a* conversation rather than *the* conversation. The
+  device reopens the last one when it starts, because it is a thing that
+  sits on a counter and gets picked up mid-thought -- "what did we decide
+  about the Tuesday invoice?" has to have an answer the morning after.
+  Starting a new one is a deliberate act, never something a restart does
+  on the owner's behalf.
+- **Earlier conversations are one tap away, and they cover the pane.**
+  Two quiet icons join the orb in the pane's control row: start a new
+  conversation, and open the earlier ones. Nothing new is added around
+  the pane for this -- no second sidebar, no third column. The device is
+  the assistant beside the owner's work, and a list of past chats is not
+  worth permanently narrowing the work to hold.
+
+  Opening it covers the conversation column, full height. Picking one
+  loads it and the list closes; that is the whole interaction. Covering
+  rather than opening beside means the list has the pane's full measure
+  to be readable in, and means this behaves identically at every window
+  size instead of having a layout that only works when maximized.
+
+  One row per conversation: what it was called, a line of what it was
+  about, and when. Grouped by *Today*, *Yesterday*, *Earlier this week*,
+  *Before that* -- the owner remembers when they asked something far
+  better than they remember what the thread ended up being called, and a
+  flat list sorted by a date they have to read is a list they have to
+  read all of.
+- **The device names its own conversations.** A title is written from the
+  owner's opening words, and it may improve a second or two after a
+  conversation begins as the device settles on a better one. A
+  conversation with nothing in it yet reads "New conversation".
+
+  Never an id, and never a timestamp standing in for a name. A row
+  labelled with machine identity is the device admitting it did not
+  understand what was said to it, on the one surface whose entire job is
+  to prove otherwise.
+- **Keep, rename, delete -- and nothing else.** A kept conversation sits
+  at the top of the list under its own heading; "keep" is the owner's
+  word for it, because "pin" describes the mechanism rather than the
+  intent.
+
+  Renaming and deleting live behind a per-row menu, never on the row
+  itself. A delete control a few pixels from something the owner taps
+  constantly is a trap, and this list is made of things that cannot be
+  got back. Deleting asks once, in plain language, and says what is being
+  lost.
+
+  There is deliberately no archive. Something the owner is told is put
+  away, but which they cannot then go and find, is worse than either
+  keeping it or deleting it honestly.
+- **Switching is a full-size act.** The floating pill has no list: it is
+  the conversation the owner is already in, and choosing between things
+  is not what that shape is for. While a reply is arriving, the list
+  still opens and reads, but the rows do not respond -- the reply has
+  somewhere to land and a question the device asked has somewhere to be
+  answered. The way to leave early is the Stop control that is already
+  there.
 - **The orb is the other party.** A small presence orb (56px) sits at the
   top of the conversation pane; there is no assistant avatar, name badge, or
   message bubble on the assistant side. Assistant text renders directly

@@ -2,6 +2,7 @@ mod agent;
 mod approval_mode;
 mod cloud_key;
 mod dev;
+mod sessions;
 mod shelf;
 mod window_mode;
 
@@ -92,6 +93,13 @@ pub fn run() {
             window_mode::window_drag,
             window_mode::window_toggle_maximize,
             window_mode::window_resize_drag,
+            sessions::sessions_list,
+            sessions::sessions_active,
+            sessions::sessions_open,
+            sessions::sessions_new,
+            sessions::sessions_rename,
+            sessions::sessions_keep,
+            sessions::sessions_delete,
             dev::dev_reset_setup,
             shelf::shelf_list
         ])

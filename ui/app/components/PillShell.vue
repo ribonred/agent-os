@@ -19,6 +19,7 @@ const {
   awaitingApproval,
   orbState,
   connect,
+  restore,
   send,
   answerApproval,
 } = useConversation();
@@ -26,7 +27,12 @@ const { holdingOpen, toggle, expand, drag } = useWindowMode();
 
 const scroller = ref<HTMLElement | null>(null);
 
-onMounted(connect);
+onMounted(async () => {
+  await connect();
+  // The device can be switched on straight into this shape, in which
+  // case nothing else has put the last conversation back yet.
+  await restore();
+});
 
 /// The tail of the conversation. The pill is for the exchange happening
 /// now; the whole history is what the full shell is for.

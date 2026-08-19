@@ -5,7 +5,7 @@ track). Commercial product code that ships to customers — every file is
 something a customer's device could expose or a future contributor could
 read with zero shared context. See `CLAUDE.md` at the repo root for the
 full context (project goals, repo map, commercial-code hygiene rules,
-Playwright-based UI validation workflow) — this file exists so tools that
+UI validation workflow) — this file exists so tools that
 read `.github/copilot-instructions.md` specifically get the same
 grounding without duplicating it here.
 
@@ -22,9 +22,23 @@ grounding without duplicating it here.
   hardcoded — local (Ollama+Hermes) or cloud (OpenRouter+Hermes) depending
   on what the device can actually run.
 - `ui/` is developed against the system's own Rust/bun toolchain.
-- Before writing UI code and claiming it's correct: verify visually with
-  Playwright MCP (screenshot + computed-style inspection), not just a
-  clean typecheck/build. Full workflow and boundaries are in `CLAUDE.md`.
+- Before claiming UI code is correct, look at it. A clean
+  typecheck/build proves neither layout nor behaviour. Which loop
+  depends on what is being claimed:
+  - **Native half** — a Tauri command's real return value, window modes,
+    the store on disk, a gateway round-trip, or WebKitGTK layout: run
+    `make ui-drive`, which drives the built binary over WebDriver
+    (`ui/dev/drive.py`). The app runs unmodified; nothing is added to the
+    shipped binary for it. Needs `sudo apt install webkitgtk-webdriver`
+    (not the `webkit2gtk-driver` the Tauri docs name) and
+    `cargo install tauri-driver`, neither of which ships.
+  - **Layout alone** — a browser with Playwright is the quicker loop, but
+    Chromium is not the engine the device ships, and nothing native
+    exists there. Do not claim the device renders something correctly on
+    Chromium's word.
+  - A driven run writes to a throwaway `XDG_DATA_HOME`; leave it that
+    way, and delete any real conversations a scenario created. Full
+    workflow and boundaries are in `CLAUDE.md`.
 - No personal names, no internal-tooling references in code/comments —
   see `CLAUDE.md`'s commercial-code hygiene section for the full rule.
 - Check `taskmd list` / `taskmd next` before assuming project state;

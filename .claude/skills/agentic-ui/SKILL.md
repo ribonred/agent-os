@@ -3,10 +3,10 @@ name: agentic-ui
 description: >
   Change the Tauri + Nuxt assistant shell, setup screens, chat, files,
   orb, or design tokens. Use for ui/, design/DESIGN.md, design/DESKTOP.md,
-  visual or layout claims, Playwright checks, and make dev/gui/ui-bundle —
-  even if the user only said button, screen, glow, or centered. For the
-  Rust host, invoke, and window modes use tauri-nuxt. For taste, copy,
-  and DESIGN.md rules use product-ux.
+  visual or layout claims, make ui-drive or Playwright checks, and
+  make dev/gui/ui-bundle — even if the user only said button, screen,
+  glow, or centered. For the Rust host, invoke, and window modes use
+  tauri-nuxt. For taste, copy, and DESIGN.md rules use product-ux.
 ---
 
 # Agentic UI
@@ -59,9 +59,53 @@ gateway URLs, paths, and errno stay in the log.
 `nuxt typecheck` and a successful build do not prove "it's centered"
 or "the glow renders."
 
-Use Playwright MCP: navigate, screenshot, `Read` the image. If the
+Two loops. Picking the wrong one wastes the pass.
+
+**Does the claim depend on the native half?** A command's real return
+value, window modes, the store on disk, a gateway round-trip, or how
+WebKitGTK lays the page out — use `make ui-drive`. Anything else, the
+browser is quicker.
+
+### `make ui-drive` — the real app
+
+Drives the built binary over WebDriver (`ui/dev/drive.py`). The app runs
+unmodified; nothing is added to the shipped binary for it. Import `App`
+for a scenario: `js()`, `click()`, `type_into()`, `screenshot()`,
+`settle()`, `log()`, and `seed()` to write the store before launch so a
+run does not sit through the setup conversation.
+
+One-off installs, neither of which ships: `sudo apt install
+webkitgtk-webdriver` (**not** the `webkit2gtk-driver` the Tauri docs
+name) and `cargo install tauri-driver`.
+
+- Writes to a throwaway `XDG_DATA_HOME` by default. Leave it. An
+  automated pass once wrote window geometry into the real settings and
+  the app opened wrong afterwards.
+- A scenario that talks to the gateway leaves **real conversations** in
+  the owner's list. Delete the ones you created, and only those.
+- The window opens on the real display, so it is visible to whoever is
+  at the machine.
+- `log()` returns both halves labelled: `[app]` from the shell's log
+  file, `[page]` from the console, captured in-page because WebKitGTK
+  does not expose it. Only what happens after start is in `[page]`.
+
+Chromium is not the engine the device ships. It agreeing with the design
+is evidence about Chromium — use `make ui-drive` before claiming the
+device renders something correctly.
+
+### The browser — layout alone
+
+Playwright MCP: navigate, screenshot, `Read` the image. If the
 screenshot cannot explain a miss, evaluate `getComputedStyle` on the
-node.
+node. The MCP is not always registered; a local Playwright driving
+Chromium does the same job.
+
+Nothing native exists here, so `invoke` fails and the app redirects to
+setup or renders empty. Stub `window.__TAURI_INTERNALS__.invoke` before
+the app's scripts run. Two that cost real time: `plugin:store|get`
+returns a `[value, exists]` **tuple**, not a bare value, and
+`plugin:store|load` must return a resource id, not null. Both fail by
+silently redirecting to the language screen.
 
 **Hard rule:** while the user's `bun run tauri dev` is running, do not
 start another Vite/Nuxt server on this tree and do not delete `.nuxt/`,

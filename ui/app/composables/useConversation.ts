@@ -3,6 +3,7 @@ import { waitForAgentReady } from "~/lib/agentStatus";
 import { agentErrorMessage, streamErrorMessage } from "~/lib/agentErrors";
 import { toolSummary } from "~/lib/toolNames";
 import { getOnboardingQuestionCount } from "~/lib/setupStore";
+import type { Conversation } from "~/lib/sessionList";
 
 // The conversation's state and streaming, owned by the shell rather than
 // by a page. The pane is mounted once for the life of the shell, so a
@@ -76,6 +77,10 @@ export function useConversation(mode: ConversationMode = "chat") {
   /// The turn currently running, which is what a permission answer and
   /// the stop control both have to address.
   const runId = useState<string | null>(`${key}:runId`, () => null);
+  /// The conversation being shown. Null before the owner has said
+  /// anything: the gateway opens one on the first turn, so until then
+  /// there is genuinely nothing to name or come back to.
+  const sessionId = useState<string | null>(`${key}:sessionId`, () => null);
   /// Set while the runtime is holding a command: the orb keeps thinking
   /// and the input stays out of the way until the owner answers.
   const awaitingApproval = useState<boolean>(
@@ -247,7 +252,105 @@ export function useConversation(mode: ConversationMode = "chat") {
       streaming.value = false;
       awaitingApproval.value = false;
       runId.value = null;
+      // The gateway opens a conversation on the first turn, so this is
+      // where the shell finds out which one it is now in -- and what the
+      // list has to highlight.
+      if (mode === "chat" && sessionId.value === null) {
+        try {
+          sessionId.value = await invoke<string | null>("sessions_active");
+        } catch {
+          // Only the highlight in the list is affected.
+        }
+      }
     }
+  }
+
+  /// A stored transcript, drawn as the turns it was drawn as the first
+  /// time. Tool rows arrive carrying only the runtime's own name for the
+  /// tool; the sentence the owner reads is added here, from the same
+  /// table live rows go through, so a reopened conversation and a fresh
+  /// one cannot describe the same action differently.
+  function hydrate(turns: { kind: string; content?: string; name?: string }[]) {
+    entries.value = turns.map((turn) =>
+      turn.kind === "tool"
+        ? ({
+            kind: "tool",
+            name: turn.name ?? "",
+            summary: toolSummary(turn.name ?? ""),
+            phase: "completed",
+          } as Turn)
+        : ({ kind: turn.kind, content: turn.content ?? "" } as Turn),
+    );
+  }
+
+  /// Shows a conversation the owner picked, and makes it the one the
+  /// next turn continues.
+  async function openSession(id: string) {
+    if (busy.value) return;
+    try {
+      const turns = await invoke<{ kind: string; content?: string; name?: string }[]>(
+        "sessions_open",
+        { sessionId: id },
+      );
+      hydrate(turns);
+      sessionId.value = id;
+    } catch (error) {
+      entries.value = [
+        { kind: "error", content: agentErrorMessage(surface, error) },
+      ];
+    }
+  }
+
+  /// Clears the pane for a new subject. Nothing is created until the
+  /// owner says something -- an empty conversation in their list would be
+  /// one they never had.
+  async function newConversation() {
+    if (busy.value) return;
+    try {
+      await invoke("sessions_new");
+    } catch (error) {
+      entries.value.push({
+        kind: "error",
+        content: agentErrorMessage(surface, error),
+      });
+      return;
+    }
+    entries.value = [];
+    input.value = "";
+    sessionId.value = null;
+  }
+
+  /// Puts the device back where its owner left it. Run once as the pane
+  /// mounts: a device that sits on a counter is picked up mid-thought,
+  /// and starting every launch on an empty pane silently discards what
+  /// was being talked about.
+  ///
+  /// Failing here is not worth saying out loud. The owner asked for
+  /// nothing; an empty pane they can type into is a working device, and
+  /// an error line about a conversation they had not asked to see would
+  /// be the first thing they read on switching it on.
+  async function restore() {
+    if (entries.value.length > 0 || busy.value) return;
+    try {
+      const id = await invoke<string | null>("sessions_active");
+      if (!id) return;
+      const turns = await invoke<{ kind: string; content?: string; name?: string }[]>(
+        "sessions_open",
+        { sessionId: id },
+      );
+      hydrate(turns);
+      sessionId.value = id;
+    } catch {
+      // Left as a fresh conversation.
+    }
+  }
+
+  /// The conversations the owner can go back to, newest first.
+  async function listSessions(offset = 0) {
+    return await invoke<{ sessions: Conversation[]; hasMore: boolean }>(
+      "sessions_list",
+      { limit: 30, offset },
+    );
   }
 
   /// Sends what is typed, or an answer the owner tapped instead.
@@ -306,11 +409,16 @@ export function useConversation(mode: ConversationMode = "chat") {
     daemonError,
     awaitingApproval,
     runId,
+    sessionId,
     orbState,
     connect,
     runTurn,
     send,
     answerApproval,
     stop,
+    restore,
+    openSession,
+    newConversation,
+    listSessions,
   };
 }

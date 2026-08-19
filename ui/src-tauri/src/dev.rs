@@ -25,6 +25,11 @@ const SETUP_KEYS: &[&str] = &[
     "onboardingQuestionCount",
     "onboardingComplete",
     "onboardingSessionId",
+    // Not setup state, but it has to go for the same reason: a device
+    // that has just been taken back to its first-boot screens would
+    // otherwise finish the interview and reopen a conversation from
+    // before the reset.
+    "chatSessionId",
 ];
 
 /// Clears the shell's half of setup so the next launch opens on the
@@ -83,6 +88,7 @@ mod tests {
             "onboardingQuestionCount",
             "onboardingComplete",
             "onboardingSessionId",
+            "chatSessionId",
         ] {
             assert!(SETUP_KEYS.contains(&key), "{key} would survive a reset");
         }
