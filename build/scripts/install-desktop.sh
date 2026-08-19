@@ -17,6 +17,10 @@ set -euo pipefail
 ROOTFS="$1"
 DEVICE_USER="$2"
 UI_BUNDLE="${3:-}"
+# The repo, for assets that are checked in rather than built -- the
+# app's icon is the only one so far. Same argument install-hermes.sh
+# takes, for the same reason.
+REPO="${4:-}"
 
 in_chroot() {
     chroot "$ROOTFS" /usr/bin/env -i \
@@ -53,23 +57,66 @@ EOF
 # The assistant
 # ---------------------------------------------------------------------------
 if [ -n "$UI_BUNDLE" ] && [ -f "$UI_BUNDLE" ]; then
-    install -D -m 755 "$UI_BUNDLE" "$ROOTFS/usr/local/bin/agentic-ui"
-
     # A normal-distro binary on a normal-distro filesystem: it links
     # against the libraries apt installed and needs no patching. This is
     # the whole reason the shell is built with the system toolchain.
-    install -D -m 644 /dev/stdin "$ROOTFS/etc/xdg/autostart/agentic-ui.desktop" <<'EOF'
+    install -D -m 755 "$UI_BUNDLE" "$ROOTFS/usr/local/bin/matoakaui"
+
+    # The product's mark, at the sizes the desktop actually asks for.
+    # Installed into the shared icon theme rather than beside the binary
+    # so `Icon=matoakaui` resolves the way every other application's
+    # does, and so GNOME can pick the size it wants instead of scaling
+    # one bitmap to everything.
+    if [ -n "$REPO" ] && [ -d "$REPO/ui/src-tauri/icons" ]; then
+        for size in 32 64 128 256; do
+            case "$size" in
+                256) source_icon="$REPO/ui/src-tauri/icons/128x128@2x.png" ;;
+                *)   source_icon="$REPO/ui/src-tauri/icons/${size}x${size}.png" ;;
+            esac
+            [ -f "$source_icon" ] || continue
+            install -D -m 644 "$source_icon" \
+                "$ROOTFS/usr/share/icons/hicolor/${size}x${size}/apps/matoakaui.png"
+        done
+        echo "  icon:      /usr/share/icons/hicolor/*/apps/matoakaui.png"
+    else
+        echo "  icon:      NOT INSTALLED -- no repo path given."
+    fi
+
+    # Two entries, and both are needed for different reasons.
+    #
+    # The session looks up a window's name and icon in applications/,
+    # never in autostart/ -- so an autostart entry alone starts the
+    # assistant with the desktop's generic placeholder mark next to it.
+    # NoDisplay keeps it out of the app grid, which is right for a device
+    # whose one application is already on screen, and still allows the
+    # window to be matched.
+    install -D -m 644 /dev/stdin "$ROOTFS/usr/share/applications/matoakaui.desktop" <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=Assistant
-Exec=/usr/local/bin/agentic-ui
+Exec=/usr/local/bin/matoakaui
+Icon=matoakaui
+NoDisplay=true
+# Ties the running window to this entry. GTK takes a Wayland window's
+# app id from the executable's name, which is why the binary, this file,
+# and the icon all have to be called the same thing.
+StartupWMClass=matoakaui
+EOF
+
+    install -D -m 644 /dev/stdin "$ROOTFS/etc/xdg/autostart/matoakaui.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Assistant
+Exec=/usr/local/bin/matoakaui
+Icon=matoakaui
 # The assistant is the device's reason to exist: if it dies, the session
 # should bring it back rather than leave the owner at an empty desktop.
 X-GNOME-Autostart-enabled=true
 X-GNOME-Autostart-Phase=Applications
 NoDisplay=true
+StartupWMClass=matoakaui
 EOF
-    echo "  assistant: /usr/local/bin/agentic-ui (autostarts with the session)"
+    echo "  assistant: /usr/local/bin/matoakaui (autostarts with the session)"
 else
     echo "  assistant: NOT INCLUDED -- no UI bundle supplied."
     echo "             The image is a complete system with no assistant UI."

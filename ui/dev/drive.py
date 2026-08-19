@@ -35,7 +35,7 @@ import urllib.error
 import urllib.request
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-APP = os.environ.get("AGENTIC_OS_APP", f"{REPO}/ui/src-tauri/target/release/ui")
+APP = os.environ.get("AGENTIC_OS_APP", f"{REPO}/ui/src-tauri/target/release/matoakaui")
 PORT = int(os.environ.get("AGENTIC_OS_DRIVER_PORT", "4445"))
 BASE = f"http://127.0.0.1:{PORT}"
 

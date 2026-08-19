@@ -90,9 +90,12 @@ Flags: `OLLAMA_SKIP=1`, `BROWSER_SKIP=1`, `HERMES_SSH_KEY=...`.
 - The agent runs **as the device owner**, not a `hermes` service user.
   Passwordless sudo is intentional. The approval gate is inside the
   agent, not a sudo prompt.
-- Postgres is unix-socket only (`listen_addresses = ''`). Peer auth:
-  the role name must match the owner account. Role creation happens on
-  the device (`agentic-pg-init`), not in the chroot.
+- Postgres is unix-socket only (`listen_addresses = ''`), so a health
+  check written as `pg_isready -h localhost` reports failure on a
+  perfectly healthy device. No per-agent role is created: peer auth
+  would require one named after the account the agent runs under, and
+  the agent connects as `postgres` instead -- the only role that can
+  govern the others. See `brain/skills/device-services`.
 - `apt` has no rollback. A ruined unit is reflashed. Do not invent an
   atomic package manager in comments or code.
 - `ui-bundle` is built with `env -i` and the system rustup/bun, then

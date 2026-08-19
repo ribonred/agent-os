@@ -10,5 +10,5 @@ when_not_to_use: >
   Free-text notes, documents, or loosely structured knowledge the user is
   feeding in -- that belongs in the knowledge/graph store, not here.
 install: build/scripts/install-services.sh
-health_check: "pg_isready -h localhost"
+health_check: "pg_isready"
 status: enabled_by_default

@@ -37,51 +37,23 @@ else
     echo "warning: no postgresql config dir found -- skipping listen_addresses" >&2
 fi
 
-# Peer auth means the role name must match the system user, and the agent
-# runs as 'hermes'. Without this role the server is up and unreachable by
-# the only thing that uses it.
+# No per-agent role is created, and none is wanted.
 #
-# Superuser grants nothing it could not already take -- the agent has
-# passwordless root -- and avoids walling it off behind a permission
-# error it cannot explain to the owner.
+# An earlier version made a superuser role named after the account the
+# agent was expected to run under, so that a bare `psql` would work by
+# peer authentication. That premise stopped being true when the agent
+# moved to the device owner's own account, and the role it created was
+# named after an account that no longer exists -- so `psql` failed with
+# "role does not exist" and the database looked broken to the one thing
+# that uses it.
 #
-# The chroot has no running postgres, so this cannot be done with psql at
-# build time. It runs once on the device, before the agent starts.
-install -D -m 755 /dev/stdin "$ROOTFS/usr/local/sbin/agentic-pg-init" <<'EOF'
-#!/usr/bin/env bash
-# Create the agent's PostgreSQL role. Idempotent: safe to re-run, and it
-# must be, because it runs on every boot until it succeeds once.
-set -euo pipefail
-
-for _ in $(seq 30); do
-    su - postgres -c "pg_isready -q" && break
-    sleep 1
-done
-
-su - postgres -c "psql -XAtqc \"SELECT 1 FROM pg_roles WHERE rolname='hermes'\"" \
-    | grep -q 1 && exit 0
-
-su - postgres -c "psql -XAtqc \"CREATE ROLE hermes LOGIN SUPERUSER\""
-echo "created postgresql role: hermes"
-EOF
-
-install -D -m 644 /dev/stdin "$ROOTFS/etc/systemd/system/agentic-pg-init.service" <<'EOF'
-[Unit]
-Description=Create the agent's PostgreSQL role
-After=postgresql.service
-Requires=postgresql.service
-# Ordered before the agent so its first query cannot lose the race with
-# role creation.
-Before=hermes-gateway.service
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/sbin/agentic-pg-init
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-EOF
+# The agent now connects as `postgres` (see brain/skills/device-services).
+# That is the role that can govern the others -- create and drop roles,
+# grant and revoke, reach every database -- which is what administering
+# the device's database actually requires. It grants nothing that could
+# not already be taken, since the agent has passwordless root, and it
+# removes a boot-time unit that existed only to prop up the bare-psql
+# assumption.
 
 # ---------------------------------------------------------------------------
 # Redis
@@ -101,8 +73,7 @@ fi
 in_chroot "
     systemctl enable postgresql.service
     systemctl enable redis-server.service
-    systemctl enable agentic-pg-init.service
 "
 
-echo "  postgresql: unix socket only, role 'hermes' created on first boot"
+echo "  postgresql: unix socket only, reached as the postgres role"
 echo "  redis:      127.0.0.1:6379"

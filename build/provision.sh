@@ -33,7 +33,7 @@ ROOTFS=/
 # install. Falls back to the same name the from-scratch image build uses,
 # so both paths produce a device with the same owner account.
 DEVICE_USER="${DEVICE_USER:-$(logname 2>/dev/null || echo "${SUDO_USER:-admin-agent}")}"
-UI_BUNDLE="${UI_BUNDLE:-$REPO/ui/src-tauri/target/release/ui}"
+UI_BUNDLE="${UI_BUNDLE:-$REPO/ui/src-tauri/target/release/matoakaui}"
 
 OLLAMA_SKIP="${OLLAMA_SKIP:-0}"
 BROWSER_SKIP="${BROWSER_SKIP:-0}"
@@ -195,7 +195,6 @@ log "Starting services"
 # Unlike the container build, this system is running -- so the services
 # can actually be started and checked rather than only enabled.
 systemctl restart postgresql redis-server || true
-systemctl start agentic-pg-init || true
 
 systemctl restart hermes-gateway || true
 sleep 5

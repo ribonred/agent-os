@@ -14,7 +14,7 @@ HERMES_URL ?= http://127.0.0.1:8642
 # ui/nuxt.config.ts -- the shell polls this exact address at startup.
 UI_DEV_URL ?= http://localhost:3000
 
-UI_BUNDLE ?= $(REPO)/ui/src-tauri/target/release/ui
+UI_BUNDLE ?= $(REPO)/ui/src-tauri/target/release/matoakaui
 
 # Where setup state actually lives, for `make dev-reset`. The shell's
 # store is named by the app identifier in tauri.conf.json; the agent's
@@ -28,7 +28,7 @@ IMAGE  ?= $(REPO)/build/agentic-os.img
 BUILD_IMAGE ?= agentic-os-build
 # The UI binary's path as seen from inside the container, where the repo
 # is bind-mounted at /repo.
-DOCKER_UI   ?= /repo/ui/src-tauri/target/release/ui
+DOCKER_UI   ?= /repo/ui/src-tauri/target/release/matoakaui
 # Ollama's tarball bundles CUDA and ROCm runtimes the mini-PC tier has no
 # use for -- roughly 1.4GB compressed. Set to 1 for a faster iteration
 # and a much smaller image; llama.cpp still gives the device local
@@ -44,7 +44,7 @@ BROWSER_SKIP ?= 0
 # clone and never written into the image. Leave empty to use HTTPS.
 HERMES_SSH_KEY ?=
 
-.PHONY: help dev gui dev-reset hermes-env test ui-drive ui-bundle rootfs image golden clean-image \
+.PHONY: help dev gui dev-reset hermes-env test ui-icon ui-icon-clear ui-drive ui-bundle rootfs image golden clean-image \
         build-image rootfs-docker image-docker golden-docker shell-docker
 
 help: ## List available targets
@@ -166,6 +166,43 @@ golden-docker: ui-bundle rootfs-docker image-docker ## Everything, built in the 
 
 shell-docker: build-image ## Interactive shell in the build container (debugging)
 	docker run --rm -it --privileged -v $(REPO):/repo -v /dev:/dev $(BUILD_IMAGE)
+
+ui-icon: ## Show the product mark for the locally built app (dev sessions)
+	# The desktop finds a window's icon by matching the window's app id
+	# against a desktop entry, and the built image installs one. A dev
+	# machine has none, so a locally run build shows the session's
+	# generic placeholder mark no matter what the binary embeds -- the
+	# icon is not missing, the entry that names it is.
+	#
+	# Installs into the developer's own home, so it needs no root and
+	# affects nobody else. Undo with `make ui-icon-clear`.
+	@test -x $(UI_BUNDLE) || { echo "no binary at $(UI_BUNDLE) -- run 'make ui-bundle' first" >&2; exit 1; }
+	@for size in 32 64 128 256; do \
+	  case $$size in 256) src=$(REPO)/ui/src-tauri/icons/128x128@2x.png ;; \
+	                 *) src=$(REPO)/ui/src-tauri/icons/$${size}x$${size}.png ;; esac; \
+	  install -D -m 644 "$$src" \
+	    "$$HOME/.local/share/icons/hicolor/$${size}x$${size}/apps/matoakaui.png"; \
+	done
+	@mkdir -p "$$HOME/.local/share/applications"
+	@printf '%s\n' \
+	  '[Desktop Entry]' \
+	  'Type=Application' \
+	  'Name=Assistant (dev)' \
+	  'Exec=$(UI_BUNDLE)' \
+	  'Icon=matoakaui' \
+	  'NoDisplay=true' \
+	  'StartupWMClass=matoakaui' \
+	  > "$$HOME/.local/share/applications/matoakaui.desktop"
+	@command -v update-desktop-database >/dev/null && \
+	  update-desktop-database "$$HOME/.local/share/applications" 2>/dev/null || true
+	@command -v gtk-update-icon-cache >/dev/null && \
+	  gtk-update-icon-cache -f -t "$$HOME/.local/share/icons/hicolor" 2>/dev/null || true
+	@echo "installed. Restart the app; already-open windows keep the old icon."
+
+ui-icon-clear: ## Remove the dev-session desktop entry and icons
+	@rm -f "$$HOME/.local/share/applications/matoakaui.desktop"
+	@rm -f "$$HOME"/.local/share/icons/hicolor/*/apps/matoakaui.png
+	@echo "removed."
 
 ui-drive: ## Drive the built desktop app over WebDriver (see ui/dev/drive.py)
 	# The real binary, the real gateway, and WebKitGTK -- which is the

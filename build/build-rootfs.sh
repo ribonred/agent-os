@@ -36,7 +36,7 @@ DEVICE_HOSTNAME="${DEVICE_HOSTNAME:-agentic-os}"
 # The Tauri shell binary. Optional: without it the image is a complete
 # system with no assistant UI, which is a legitimate thing to build and
 # boot while the GUI packaging story is still being settled.
-UI_BUNDLE="${UI_BUNDLE:-$REPO/ui/src-tauri/target/release/ui}"
+UI_BUNDLE="${UI_BUNDLE:-$REPO/ui/src-tauri/target/release/matoakaui}"
 
 usage() {
     cat <<EOF
@@ -230,7 +230,7 @@ log "Desktop session"
 # BROWSER_SKIP passed explicitly for the same reason as OLLAMA_SKIP:
 # whether the image carries a browser is a visible build decision.
 BROWSER_SKIP="${BROWSER_SKIP:-0}" \
-    "$BUILD_DIR/scripts/install-desktop.sh" "$ROOTFS" "$DEVICE_USER" "$UI_BUNDLE"
+    "$BUILD_DIR/scripts/install-desktop.sh" "$ROOTFS" "$DEVICE_USER" "$UI_BUNDLE" "$REPO"
 
 # ---------------------------------------------------------------------------
 log "First-boot unit"
