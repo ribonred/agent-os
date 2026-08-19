@@ -89,6 +89,9 @@ fonts-noto-color-emoji
 postgresql
 postgresql-client
 redis-server
+# Docker is part of the shipped device tooling; the owner is added to the
+# docker group below so ordinary container workflows do not require sudo.
+docker.io
 
 # --- local inference -----------------------------------------------------
 # llama.cpp: the low tier's inference engine, and the fallback everywhere.

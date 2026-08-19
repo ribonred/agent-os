@@ -160,8 +160,8 @@ log "Owner account groups"
 # installer -- so only the group membership the device needs is added.
 # render and video are what let anything outside the desktop session open
 # the GPU; without them a local inference server silently runs on the CPU.
-usermod -aG sudo,audio,video,render,plugdev,users "$DEVICE_USER"
-id -nG "$DEVICE_USER" | tr ' ' '\n' | grep -E '^(render|video|sudo)$' | sed 's/^/  in group: /'
+usermod -aG sudo,audio,video,render,plugdev,users,docker "$DEVICE_USER"
+id -nG "$DEVICE_USER" | tr ' ' '\n' | grep -E '^(docker|render|video|sudo)$' | sed 's/^/  in group: /'
 
 # ---------------------------------------------------------------------------
 log "Desktop session"

@@ -199,7 +199,7 @@ log "Creating the device owner account: $DEVICE_USER"
 # to running on the CPU.
 in_chroot "
     useradd --create-home --shell /bin/bash \
-        --groups sudo,audio,video,render,plugdev,users '$DEVICE_USER'
+        --groups sudo,audio,video,render,plugdev,users,docker '$DEVICE_USER'
     echo '$DEVICE_USER:changeme' | chpasswd
     mkdir -p /home/$DEVICE_USER/Documents /home/$DEVICE_USER/Downloads
     chown -R $DEVICE_USER:$DEVICE_USER /home/$DEVICE_USER

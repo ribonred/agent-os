@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Device services: PostgreSQL and Redis.
+# Device services: Docker, PostgreSQL and Redis.
 #
 # Agent-facing metadata for both lives in registry/*.yaml, kept out of the
 # build system so the running agent can read it without any build tooling
@@ -71,9 +71,11 @@ fi
 
 # ---------------------------------------------------------------------------
 in_chroot "
+    systemctl enable docker.service
     systemctl enable postgresql.service
     systemctl enable redis-server.service
 "
 
+echo "  docker:     enabled, owner access via the docker group"
 echo "  postgresql: unix socket only, reached as the postgres role"
 echo "  redis:      127.0.0.1:6379"
