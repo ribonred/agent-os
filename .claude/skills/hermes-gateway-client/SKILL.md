@@ -38,28 +38,39 @@ restarts. Owner profile → Hermes `memory` tool, `user` target
 (`USER.md`). Device facts → `memory` target (`MEMORY.md`). Do not
 duplicate the profile in Postgres or `settings.json`.
 
-**Prompts.** Prose lives in `brain/` and is `include_str!`'d at
-compile time:
+**Session resume / history.** Hermes capabilities matter here:
 
-- `brain/onboarding-protocol.md`
-- `brain/onboarding-start.md`
-- `brain/onboarding-resume.md`
+- `GET /api/sessions/{id}/messages` — durable transcript for the UI
+- `POST /api/sessions/{id}/chat` and `.../chat/stream` — **load DB
+  history** via `get_messages_as_conversation`, then run one turn
+- `POST /v1/runs` — `session_id` is correlation only unless the client
+  also sends `conversation_history` (or `previous_response_id`)
 
-A missing file is a build error. Edit those files, then the Rust only
-if the contract changed. Overlay texts (name, language, persona) are
-specified in `brain/onboarding.md` and mirrored in `agent.rs`. Change
-the markdown first.
+The shell therefore runs owner chat turns on
+`/api/sessions/{id}/chat/stream`, not bare `/v1/runs`. Reopening a
+conversation only sets the active session id and hydrates the pane;
+the next turn must hit the session chat path or Hermes answers as if
+the chat were empty. Stop/approval still use `/v1/runs/{run_id}/…`
+using the `run_id` from the session stream's `run.started` event.
+
+**Prompts.** Chat answer-offering lives in `brain/chat-protocol.md` and
+is `include_str!`'d. Onboarding is **not** a long free-form protocol
+injection anymore: `ui/src-tauri/src/onboarding.rs` owns the checklist
+and builds a per-turn step brief. Product contract prose stays in
+`brain/onboarding-protocol.md` / `brain/onboarding.md`. Overlay texts
+(name, language, persona) are specified in `brain/onboarding.md` and
+mirrored in `agent.rs`. Change the markdown first for those.
 
 **SOUL.md.** `brain/constitution.md` is installed as
 `$HERMES_HOME/SOUL.md` (directly in Hermes home, not a nested
 `.hermes/`). First-boot re-pins it every boot. Do not put the owner's
 name, persona, or service versions in the constitution.
 
-**Onboarding completion.** The shell owns it. After the owner accepts
-the profile, the agent must land a successful `memory` write
-(`user` target). Only then set `onboardingComplete`. Start normal chat
-in a **new** Hermes session so the new USER.md / MEMORY.md snapshot is
-injected.
+**Onboarding completion.** The shell owns it end-to-end. Steps and
+answers live in `onboardingState`. Silent device checks and the final
+`USER.md` write are shell-side. After the owner accepts confirm, the
+shell writes `USER.md`, sets `onboardingComplete`, and drops the
+onboarding session so normal chat starts fresh with the new snapshot.
 
 **Approvals** (device `config.yaml`): `mode: "off"` with a tiny `deny`
 list — `/etc/agentic-os/hermes.env` and `cloud-keys.toml`. Do not

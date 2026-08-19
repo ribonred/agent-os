@@ -1,16 +1,16 @@
 ---
 name: device-services
-description: "Inspect and use the device's Docker, PostgreSQL, and Redis services safely."
+description: "Inspect and use the device's Docker, PostgreSQL, Redis, and Python/uv runtime safely."
 version: 1.0.0
 platforms: [linux]
 metadata:
   hermes:
-    tags: [device, docker, postgres, redis, storage]
+    tags: [device, docker, postgres, redis, python, uv, storage]
 ---
 
 # Device Services
 
-Use this skill when onboarding starts, when the owner asks what storage or local application runtime is available, or when a task may benefit from containers, durable relational data, caching, queues, or short-lived session state.
+Use this skill when onboarding starts, when the owner asks what storage or local application runtime is available, or when a task may benefit from containers, Python tools, durable relational data, caching, queues, or short-lived session state.
 
 Treat these as internal appliance capabilities. Do not volunteer operating-system, package-manager, or service-manager details. Explain the capability and outcome in the owner's language unless they explicitly ask for technical detail.
 
@@ -37,7 +37,13 @@ Docker:
 docker info --format '{{.ServerVersion}}'
 ```
 
-For Redis, require `PING` to return exactly `PONG`, then read the `redis_version:` field from `INFO server`. For Docker, require the command to return a non-empty server version and complete without `sudo`; this confirms both that the engine is running and that the agent can use it as the device owner. Do not include credentials, connection strings, socket paths, database contents, or unrelated server metadata in memory.
+uv / Python:
+
+```bash
+uv --version
+```
+
+For Redis, require `PING` to return exactly `PONG`, then read the `redis_version:` field from `INFO server`. For Docker, require the command to return a non-empty server version and complete without `sudo`; this confirms both that the engine is running and that the agent can use it as the device owner. For `uv`, confirm the CLI returns a valid version string without `sudo`. Do not include credentials, connection strings, socket paths, database contents, or unrelated server metadata in memory.
 
 After a successful check, write a concise fact with the UTC check time to Hermes memory using the `memory` tool with `target: "memory"`. Update the existing fact for that service rather than adding duplicates. If a command fails, times out, or returns malformed output, say the service could not be verified and leave its remembered version unchanged.
 
@@ -48,6 +54,17 @@ Docker is the device's local application runtime. Use it when the owner's task n
 Run Docker commands as the device owner without `sudo`. The owner account is granted Docker access during device setup, and a new login or reboot may be required before that access appears in the current session. Do not work around a failed permission check by silently adding `sudo`; report the access problem and verify the service first.
 
 Before starting, stopping, removing, or replacing containers, inspect the target container and explain consequential changes. Prefer named volumes for data that must survive container replacement, and do not put owner profiles, learned business knowledge, records, secrets, or audit history only inside an untracked container filesystem.
+
+## Python & uv
+
+`uv` is the preferred tool for Python scripts, temporary CLI tools, and isolated environments on this device.
+
+When a task requires running Python code or Python-based CLI utilities:
+
+- Prefer `uv run` for executing ad-hoc scripts or one-off commands with inline or project dependencies (e.g., `uv run --with <pkg> <script>`).
+- Prefer `uv tool run` or `uv tool install` when running standalone CLI tools in isolated environments rather than modifying system packages or global Python installations.
+- Run `uv` commands directly as the device owner without `sudo` and without mutating system Python libraries.
+- Never use `sudo pip install` or pollute the global system interpreter.
 
 ## PostgreSQL
 

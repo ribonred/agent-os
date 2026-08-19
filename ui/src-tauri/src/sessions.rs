@@ -114,11 +114,11 @@ fn row(session: &serde_json::Value) -> serde_json::Value {
 /// and a question that was already answered is not a question -- a card
 /// with live buttons on a conversation from last week would be offering
 /// a decision that has already been made.
-fn transcript_turns(transcript: &serde_json::Value) -> Vec<serde_json::Value> {
+fn transcript_turns(transcript: &serde_json::Value, order: &str) -> Vec<serde_json::Value> {
     let Some(messages) = transcript["data"].as_array() else {
         return Vec::new();
     };
-    messages
+    let mut turns: Vec<serde_json::Value> = messages
         .iter()
         .filter_map(|message| {
             let role = message["role"].as_str().unwrap_or_default();
@@ -139,7 +139,13 @@ fn transcript_turns(transcript: &serde_json::Value) -> Vec<serde_json::Value> {
                 _ => None,
             }
         })
-        .collect()
+        .collect();
+    // Gateway `order=latest` is newest-first for paging; the pane draws
+    // oldest-first. Reverse only that page order.
+    if order == "latest" {
+        turns.reverse();
+    }
+    turns
 }
 
 /// The owner's conversations, most recently used first.
@@ -188,7 +194,7 @@ pub async fn sessions_open(
     // were rather than in an empty pane pointed at nothing.
     let transcript = json(
         hyper::Method::GET,
-        &format!("/api/sessions/{session_id}/messages?order=latest&limit={TRANSCRIPT_LIMIT}"),
+        &format!("/api/sessions/{session_id}/messages?order=oldest&limit={TRANSCRIPT_LIMIT}"),
         None,
         "the conversation",
     )
@@ -206,7 +212,12 @@ pub async fn sessions_open(
     let mut active = session.chat.lock().await;
     *active = Some(resolved.clone());
     save_session(&app, CHAT_SESSION_KEY, Some(&resolved))?;
-    Ok(transcript_turns(&transcript))
+    // Prefer chronological restore. `latest` would put the first thing
+    // the owner said at the bottom of the pane.
+    let order = transcript["pagination"]["order"]
+        .as_str()
+        .unwrap_or("oldest");
+    Ok(transcript_turns(&transcript, order))
 }
 
 /// Starts a fresh conversation. Nothing is created here: the next turn
@@ -300,7 +311,7 @@ mod tests {
     #[test]
     fn a_stored_exchange_comes_back_as_the_turns_that_were_drawn() {
         assert_eq!(
-            transcript_turns(&exchange()),
+            transcript_turns(&exchange(), "oldest"),
             vec![
                 serde_json::json!({ "kind": "user", "content": "Save this note for me." }),
                 serde_json::json!({ "kind": "tool", "name": "search_files" }),
@@ -314,19 +325,37 @@ mod tests {
     fn an_assistant_message_that_only_carried_tool_calls_is_not_a_turn() {
         // It renders as nothing, so replaying it would insert blank
         // gaps between the rows saying what the device did.
-        let turns = transcript_turns(&exchange());
+        let turns = transcript_turns(&exchange(), "oldest");
         assert!(turns
             .iter()
             .all(|turn| turn["kind"] != "assistant" || turn["content"] != ""));
     }
 
     #[test]
+    fn latest_order_is_drawn_oldest_first() {
+        let transcript = serde_json::json!({
+            "data": [
+                { "role": "user", "content": "second" },
+                { "role": "user", "content": "first" }
+            ]
+        });
+        // Gateway latest pages newest-first; the pane is chronological.
+        assert_eq!(
+            transcript_turns(&transcript, "latest"),
+            vec![
+                serde_json::json!({ "kind": "user", "content": "first" }),
+                serde_json::json!({ "kind": "user", "content": "second" }),
+            ]
+        );
+    }
+
+    #[test]
     fn a_conversation_with_nothing_in_it_replays_as_nothing() {
         let empty = serde_json::json!({ "object": "list", "data": [] });
-        assert!(transcript_turns(&empty).is_empty());
+        assert!(transcript_turns(&empty, "oldest").is_empty());
         // A response that isn't shaped like one at all must not panic
         // the pane on reopen.
-        assert!(transcript_turns(&serde_json::json!({})).is_empty());
+        assert!(transcript_turns(&serde_json::json!({}), "oldest").is_empty());
     }
 
     #[test]
@@ -339,7 +368,7 @@ mod tests {
             "data": [{ "role": "tool", "tool_name": "acp_bridge", "content": "{}" }]
         });
         assert_eq!(
-            transcript_turns(&transcript),
+            transcript_turns(&transcript, "oldest"),
             vec![serde_json::json!({ "kind": "tool", "name": "acp_bridge" })]
         );
     }
@@ -355,7 +384,7 @@ mod tests {
             ]
         });
         assert_eq!(
-            transcript_turns(&transcript),
+            transcript_turns(&transcript, "oldest"),
             vec![serde_json::json!({ "kind": "user", "content": "Hello" })]
         );
     }

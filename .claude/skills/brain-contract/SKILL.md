@@ -35,20 +35,18 @@ profile. Skills never belong in SOUL.md.
 
 ## Onboarding
 
-Specified in `brain/onboarding.md`, executed via
-`onboarding-protocol.md` (baked into the shell).
+Specified in `brain/onboarding.md`; executed by the shell step driver in
+`ui/src-tauri/src/onboarding.rs` (contract: `onboarding-protocol.md`).
 
-- Deterministic UI first: language, then name. Not LLM questions.
-- Then 5 unknowns, 5–15 generated questions, **one question per
-  reply**, reply ends at the question mark. Prefer yes/no.
-- Never infer what was not said. Confirm before any memory write.
-- Extract into fixed fields; keep the owner's words as `source_quote`.
-- Unresolved is valid. Guessing is not.
+- Deterministic UI first: language, then agent name. Not LLM questions.
+- Shell checklist: owner_name, role, needs, vocabulary, boundaries,
+  communication, confirm. Hermes only phrases the current open step.
+- Name locks after first answer in shell state.
+- Never infer what was not said. Unresolved is valid. Guessing is not.
 - Fresh devices: Balanced voice, no persona screen. Legacy persona
   overlay is upgrade-only.
-
-At conversation start the device agent loads `device-services` and
-runs its live Postgres/Redis checks. Save only successful parses.
+- Silent Postgres/Redis checks run once in the shell before turn 1.
+- On accept, the shell writes `USER.md` from structured answers.
 
 ## Knowledge store
 

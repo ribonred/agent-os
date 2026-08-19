@@ -25,6 +25,10 @@ const SETUP_KEYS: &[&str] = &[
     "onboardingQuestionCount",
     "onboardingComplete",
     "onboardingSessionId",
+    // Shell-owned checklist + answers. Surviving a reset would leave a
+    // "fresh" interview that still believes the previous owner finished
+    // half the steps.
+    "onboardingState",
     // Not setup state, but it has to go for the same reason: a device
     // that has just been taken back to its first-boot screens would
     // otherwise finish the interview and reopen a conversation from
@@ -88,6 +92,7 @@ mod tests {
             "onboardingQuestionCount",
             "onboardingComplete",
             "onboardingSessionId",
+            "onboardingState",
             "chatSessionId",
         ] {
             assert!(SETUP_KEYS.contains(&key), "{key} would survive a reset");

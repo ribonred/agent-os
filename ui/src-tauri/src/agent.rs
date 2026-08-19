@@ -62,17 +62,11 @@ const MEMORY_SCOPE: &str = "agentic-os:device:main";
 // include_str! resolves relative to this file and is checked at compile
 // time, so a missing or moved prompt is a build error rather than a
 // device that ships with an empty system message.
-const ONBOARDING_PROTOCOL: &str = include_str!("../../../brain/onboarding-protocol.md");
-
-/// The opening turn: the shell speaks first so the owner never faces an
-/// empty prompt.
-const ONBOARDING_START: &str = include_str!("../../../brain/onboarding-start.md");
-
-/// Picking the conversation back up after a restart mid-setup.
-const ONBOARDING_RESUME: &str = include_str!("../../../brain/onboarding-resume.md");
-
-/// How the agent offers a question's likely answers so the owner can pick
-/// one instead of typing. Applies to every conversation, setup included.
+//
+// Onboarding no longer injects the long free-form protocol each turn.
+// The shell owns a step checklist (see `onboarding` module) and only
+// asks Hermes to phrase the current open step. chat-protocol still
+// applies so yes/no steps can offer tappable answers.
 const CHAT_PROTOCOL: &str = include_str!("../../../brain/chat-protocol.md");
 
 // ---------------------------------------------------------------------
@@ -202,19 +196,17 @@ fn chat_overlay(app: &tauri::AppHandle) -> String {
         .join("\n\n")
 }
 
-fn onboarding_overlay(app: &tauri::AppHandle, question_count: u8) -> String {
+fn onboarding_overlay(
+    app: &tauri::AppHandle,
+    state: &crate::onboarding::OnboardingState,
+) -> String {
     let setup = overlay_from_store(app).unwrap_or_default();
-    let progress = format!(
-        "The shell has counted {question_count} discovery questions so far. Treat this count as authoritative."
-    );
-    // Onboarding is the run of questions the convention helps most: up to
-    // fifteen of them, put to someone who has owned the device for
-    // minutes and may be answering in their second language.
+    // Only the current open step reaches the model. Known answers are
+    // listed as locked facts so Hermes cannot re-open them.
     [
         setup,
-        ONBOARDING_PROTOCOL.trim().to_string(),
+        crate::onboarding::step_overlay(state),
         CHAT_PROTOCOL.trim().to_string(),
-        progress,
     ]
     .into_iter()
     .filter(|part| !part.is_empty())
@@ -415,6 +407,7 @@ async fn create_session(key: &str, source: Option<&str>) -> Result<String, Strin
 ///
 /// The gateway registers the run's event queue before responding, so
 /// subscribing after this returns cannot miss the run's first events.
+#[cfg(test)]
 async fn start_run(
     key: &str,
     session_id: &str,
@@ -444,6 +437,8 @@ async fn start_run(
 
 /// Streams one run's events to the UI. Returns whether any text arrived,
 /// which decides whether the no-response fallback below has to run.
+#[cfg(test)]
+#[allow(dead_code)]
 async fn stream_run(
     key: &str,
     run_id: &str,
@@ -619,7 +614,16 @@ fn translate_sse_record(record: &str) -> Option<serde_json::Value> {
                 "choices": choices,
             }))
         }
-        "run.completed" => Some(serde_json::json!({ "type": "done" })),
+        // Session-chat stream ends with both run.completed and a bare
+        // "done" frame. Either one settles the turn for the UI.
+        "run.completed" | "done" => Some(serde_json::json!({ "type": "done" })),
+        // Session chat announces the run id up front so stop/approval
+        // still hit /v1/runs/{id} while history comes from the session.
+        "run.started" => {
+            let parsed = parsed()?;
+            let run_id = parsed["run_id"].as_str()?.to_string();
+            Some(serde_json::json!({ "type": "run", "runId": run_id }))
+        }
         // Not an error the owner caused: the run was stopped, which the
         // UI reports as an ended turn rather than a failure.
         "run.cancelled" => Some(serde_json::json!({ "type": "cancelled" })),
@@ -666,6 +670,7 @@ async fn session_messages(key: &str, session_id: &str) -> Result<serde_json::Val
     serde_json::from_slice(&body).map_err(|e| format!("invalid transcript JSON: {e}"))
 }
 
+#[cfg(test)]
 fn json_arguments(value: &serde_json::Value) -> Option<serde_json::Value> {
     if let Some(text) = value.as_str() {
         serde_json::from_str(text).ok()
@@ -676,6 +681,7 @@ fn json_arguments(value: &serde_json::Value) -> Option<serde_json::Value> {
     }
 }
 
+#[cfg(test)]
 fn has_committed_user_memory_write(transcript: &serde_json::Value) -> bool {
     use std::collections::HashSet;
 
@@ -732,32 +738,147 @@ async fn run_turn(
     }
     let id = session_id.as_ref().expect("session id set above").clone();
 
-    let (status, run_id) = start_run(key, &id, &input, overlay.as_deref()).await?;
-    if !status.is_success() {
-        // The gateway forgot this session (a restart, an eviction). Drop
-        // it so the next turn opens a fresh one instead of failing
-        // identically forever.
-        if status == hyper::StatusCode::NOT_FOUND {
-            *session_id = None;
+    // Chat turns go through the session chat stream, not /v1/runs.
+    // Hermes only auto-loads durable session history on
+    // /api/sessions/{id}/chat[/stream]. /v1/runs treats session_id as a
+    // correlation tag unless the client also sends conversation_history,
+    // which is exactly how a reopened conversation looked empty to the
+    // model while the transcript was still on disk.
+    match stream_session_chat(key, &id, &input, overlay.as_deref(), on_event).await {
+        Ok((streamed_any_token, effective_id)) => {
+            if let Some(effective_id) = effective_id {
+                if effective_id != id {
+                    *session_id = Some(effective_id.clone());
+                }
+            }
+            let active_id = session_id.as_ref().expect("session id set").clone();
+            if !streamed_any_token {
+                if let Some(content) =
+                    last_assistant_text(&session_messages(key, &active_id).await?)
+                {
+                    on_event
+                        .send(serde_json::json!({ "type": "token", "content": content }))
+                        .map_err(|e| format!("ui channel closed: {e}"))?;
+                }
+            }
+            Ok(active_id)
         }
-        return Err(format!("agent gateway rejected the turn ({status}): {run_id}"));
+        Err(error) => {
+            // The gateway forgot this session (a restart, an eviction). Drop
+            // it so the next turn opens a fresh one instead of failing
+            // identically forever.
+            if error.contains("404") {
+                *session_id = None;
+            }
+            Err(error)
+        }
+    }
+}
+
+/// One turn on a persisted Hermes session, with server-side history restore.
+///
+/// Returns whether any text tokens arrived, and the effective session id
+/// Hermes reports (compression can rotate it).
+async fn stream_session_chat(
+    key: &str,
+    session_id: &str,
+    input: &str,
+    instructions: Option<&str>,
+    on_event: &Channel<serde_json::Value>,
+) -> Result<(bool, Option<String>), String> {
+    let uri: hyper::Uri = format!(
+        "{}/api/sessions/{session_id}/chat/stream",
+        base_url()
+    )
+    .parse()
+    .map_err(|e| format!("bad gateway URL: {e}"))?;
+
+    let mut payload = serde_json::json!({ "input": input });
+    if let Some(instructions) = instructions {
+        // Session chat accepts either name; instructions matches the runs
+        // overlay field the shell already composes.
+        payload["instructions"] = serde_json::Value::String(instructions.to_string());
     }
 
-    // The UI needs the run's identity to answer a permission request or
-    // stop the turn, and it needs it before either can happen.
-    on_event
-        .send(serde_json::json!({ "type": "run", "runId": run_id }))
-        .map_err(|e| format!("ui channel closed: {e}"))?;
+    let request = hyper::Request::post(uri)
+        .header("authorization", format!("Bearer {key}"))
+        .header("content-type", "application/json")
+        // Long-term memory scope — same stable key as /v1/runs used.
+        .header("x-hermes-session-key", MEMORY_SCOPE)
+        .body(Full::new(Bytes::from(
+            serde_json::to_vec(&payload).map_err(|e| format!("encode chat body: {e}"))?,
+        )))
+        .map_err(|e| format!("could not build session chat request: {e}"))?;
 
-    let streamed_any_token = stream_run(key, &run_id, on_event).await?;
-    if !streamed_any_token {
-        if let Some(content) = last_assistant_text(&session_messages(key, &id).await?) {
+    let response = http_client()
+        .request(request)
+        .await
+        .map_err(|e| format!("agent gateway unreachable: {e}"))?;
+    let status = response.status();
+    let effective_id = response
+        .headers()
+        .get("x-hermes-session-id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if !status.is_success() {
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .map(|body| String::from_utf8_lossy(&body.to_bytes()).into_owned())
+            .unwrap_or_default();
+        return Err(format!(
+            "agent gateway rejected the turn ({status}): {body}"
+        ));
+    }
+
+    let mut body = response.into_body();
+    let mut buffer: Vec<u8> = Vec::new();
+    let mut streamed_any_token = false;
+    let mut saw_terminal = false;
+    while let Some(frame) = body.frame().await {
+        let frame = frame.map_err(|e| format!("session chat stream failed mid-response: {e}"))?;
+        let Some(data) = frame.data_ref() else {
+            continue;
+        };
+        buffer.extend_from_slice(data);
+        while let Some(boundary) = buffer.windows(2).position(|window| window == b"\n\n") {
+            let record: Vec<u8> = buffer.drain(..boundary + 2).collect();
+            let record = String::from_utf8_lossy(&record);
+            let Some(event) = translate_sse_record(&record) else {
+                continue;
+            };
+            let event_type = event["type"].as_str().unwrap_or_default();
+            if event_type == "token" {
+                streamed_any_token = true;
+            }
+            if event_type == "final" {
+                // Non-streaming completion: surface once if no deltas came.
+                if !streamed_any_token {
+                    if let Some(content) = event["content"].as_str() {
+                        on_event
+                            .send(serde_json::json!({ "type": "token", "content": content }))
+                            .map_err(|e| format!("ui channel closed: {e}"))?;
+                        streamed_any_token = true;
+                    }
+                }
+                continue;
+            }
+            if matches!(event_type, "done" | "cancelled" | "error") {
+                saw_terminal = true;
+            }
             on_event
-                .send(serde_json::json!({ "type": "token", "content": content }))
+                .send(event)
                 .map_err(|e| format!("ui channel closed: {e}"))?;
         }
     }
-    Ok(id)
+    if !saw_terminal {
+        on_event
+            .send(serde_json::json!({ "type": "done" }))
+            .map_err(|e| format!("ui channel closed: {e}"))?;
+    }
+    Ok((streamed_any_token, effective_id))
 }
 
 #[tauri::command]
@@ -870,25 +991,99 @@ pub async fn agent_onboarding_chat(
     session: tauri::State<'_, AgentSession>,
     on_event: Channel<serde_json::Value>,
 ) -> Result<bool, String> {
+    use tauri_plugin_store::StoreExt;
+
+    // `question_count` is retained so older frontends still typecheck the
+    // invoke; the shell checklist is authoritative now.
+    let _ = question_count;
+
+    let mut state = crate::onboarding::load_state(&app);
+    // Device inventory is the shell's job, once, before the owner is
+    // greeted. Hermes never runs these checks during setup.
+    crate::onboarding::ensure_device_checks(&mut state);
+
+    let owner_input = input
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    if let Some(reply) = owner_input.as_deref() {
+        match state.apply_owner_reply(reply) {
+            crate::onboarding::ApplyOutcome::Accepted => {
+                let agent_name = crate::onboarding::agent_name_from_store(&app);
+                let language = crate::onboarding::language_from_store(&app);
+                let closing = crate::onboarding::completion_message(
+                    &state,
+                    agent_name.as_deref(),
+                    language.as_deref(),
+                );
+                crate::onboarding::write_user_profile(&state, agent_name.as_deref())?;
+                state.profile_written = true;
+                crate::onboarding::save_state(&app, &state)?;
+                crate::onboarding::mark_setup_complete(&app)?;
+
+                // Finish is shell-owned and unambiguous. Stream a known
+                // closing line, mark complete, drop the interview session.
+                // Do not ask Hermes to improvise a goodbye — that was the
+                // blank/ambiguous end state.
+                on_event
+                    .send(serde_json::json!({
+                        "type": "token",
+                        "content": closing,
+                    }))
+                    .map_err(|e| format!("ui channel closed: {e}"))?;
+                on_event
+                    .send(serde_json::json!({ "type": "done" }))
+                    .map_err(|e| format!("ui channel closed: {e}"))?;
+
+                save_session(&app, ONBOARDING_SESSION_KEY, None)?;
+                *session.onboarding.lock().await = None;
+                return Ok(true);
+            }
+            crate::onboarding::ApplyOutcome::NeedQuestion => {}
+        }
+    }
+
+    crate::onboarding::save_state(&app, &state)?;
+
+    // Keep the legacy counter roughly aligned for any UI that still
+    // displays progress from it.
+    if let Ok(store) = app.store("settings.json") {
+        store.set(
+            "onboardingQuestionCount",
+            serde_json::json!(state.done_count()),
+        );
+        let _ = store.save();
+    }
+
     let key = api_key()?;
-    let overlay = onboarding_overlay(&app, question_count.min(15));
+    let overlay = onboarding_overlay(&app, &state);
+    let gateway_input = crate::onboarding::turn_user_message(&state, None);
+
     let mut session_id = session.onboarding.lock().await;
     if session_id.is_none() {
         *session_id = stored_session(&app, ONBOARDING_SESSION_KEY);
     }
-    let continuing = session_id.is_some();
-    let input = input
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| {
-            if continuing {
-                ONBOARDING_RESUME.trim().to_string()
-            } else {
-                ONBOARDING_START.trim().to_string()
-            }
-        });
+
     // No source tag: setup is not a conversation the owner ever goes
     // back to, and it must not appear among the ones they can.
-    let id = match run_turn(input, Some(overlay), &key, None, &mut session_id, &on_event).await {
+    //
+    // When the owner just answered, their words are already on the UI
+    // transcript. The gateway still needs a user turn to produce the
+    // next question; we send a short shell directive rather than
+    // re-submitting the owner's text (the answer is already in state and
+    // the overlay).
+    let id = match run_turn(
+        gateway_input,
+        Some(overlay),
+        &key,
+        None,
+        &mut session_id,
+        &on_event,
+    )
+    .await
+    {
         Ok(id) => id,
         Err(error) => {
             if session_id.is_none() {
@@ -898,18 +1093,28 @@ pub async fn agent_onboarding_chat(
         }
     };
     save_session(&app, ONBOARDING_SESSION_KEY, Some(&id))?;
-    let transcript = session_messages(&key, &id).await?;
-    let committed = has_committed_user_memory_write(&transcript);
-    if committed {
-        save_session(&app, ONBOARDING_SESSION_KEY, None)?;
-        *session_id = None;
-    }
-    Ok(committed)
+    Ok(false)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[test]
+    #[test]
+    fn run_started_from_session_chat_carries_the_run_id() {
+        let record = "event: run.started\ndata: {\"run_id\": \"run_abc\", \"session_id\": \"s1\"}\n";
+        assert_eq!(
+            translate_sse_record(record),
+            Some(serde_json::json!({ "type": "run", "runId": "run_abc" }))
+        );
+        let done = "event: done\ndata: {\"run_id\": \"run_abc\"}\n";
+        assert_eq!(
+            translate_sse_record(done),
+            Some(serde_json::json!({ "type": "done" }))
+        );
+    }
 
     #[test]
     fn delta_record_becomes_a_token() {
@@ -1294,16 +1499,19 @@ mod prompt_tests {
     use super::*;
 
     #[test]
-    fn onboarding_prompts_are_baked_in_and_say_one_question() {
-        // A wrong include_str! path is a build error, but an empty or
-        // truncated file is not -- check the text actually arrived.
-        assert!(ONBOARDING_PROTOCOL.len() > 500, "protocol looks empty");
-        assert!(ONBOARDING_START.contains("One question only"));
-        assert!(ONBOARDING_RESUME.contains("One question only"));
+    fn onboarding_step_driver_phrases_current_step_only() {
+        // The long free-form protocol is no longer injected each turn.
+        // The shell checklist produces a tight overlay instead.
+        let mut state = crate::onboarding::OnboardingState::fresh();
+        let opening = crate::onboarding::step_overlay(&state);
+        assert!(opening.contains("Current step: owner_name"));
+        assert!(opening.contains("do not run tools") || opening.contains("Do not run tools"));
 
-        // The two behaviours these prompts exist to enforce.
-        assert!(ONBOARDING_PROTOCOL.contains("one question per reply"));
-        assert!(ONBOARDING_PROTOCOL.contains("yes or no"));
+        state.apply_owner_reply("John");
+        let next = crate::onboarding::step_overlay(&state);
+        assert!(next.contains("Current step: role"));
+        assert!(next.contains("John"));
+        assert!(next.contains("Never ask what to call the owner again"));
     }
 
     #[test]

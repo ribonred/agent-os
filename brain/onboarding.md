@@ -65,13 +65,11 @@ three stay in the shell because each is a template with a runtime value
 substituted into it — the owner's chosen name, their language — rather
 than fixed prose.
 
-The onboarding protocol itself is not mirrored: it is fixed prose, so it
-lives in `brain/onboarding-protocol.md` and is baked into the shell at
-build time. The opening and resume turns are likewise
-`brain/onboarding-start.md` and `brain/onboarding-resume.md`. Edit those
-files directly — there is no copy in the source to keep in step, and a
-missing one is a build error rather than a device that ships with an
-empty system message.
+Onboarding progress is **shell state**, not model memory. The checklist,
+answers, and completion flag live in the setup store (`onboardingState`);
+Hermes only phrases the current open step. The product contract for that
+driver is `brain/onboarding-protocol.md`. Opening/resume shell directives
+are `brain/onboarding-start.md` and `brain/onboarding-resume.md`.
 
 - **Identity** (only when a name is set): "Your owner has named you
   {name}. That is your name — use it naturally when you introduce
@@ -102,7 +100,10 @@ given it one of its own.
 
 So the opening exchange is a mutual introduction: the device says what it
 is called and asks what to call them. This comes before the unknowns
-below.
+below, and it happens **once**. The shell locks `owner_name` after the
+first answer and will not make that step current again — never re-asked,
+never "confirmed" by asking again, never re-opened by a fresh
+self-introduction.
 
 What is wanted is what they want to be **called** — a first name, a
 nickname, whatever they answer with. Not a legal name, and not a title
@@ -118,109 +119,57 @@ and move on. A device that asks again is worse than one that says "you".
 
 Never invent a name, and never infer one from an email address, a
 business name, or anything else already on the device.
+records this as the `owner_name` step. It earns the slot: the
+answer is used in every conversation afterwards, which is more than most
+of the others can say.
 
-The shell counts this like any other question, so it is one of the
-fifteen. It earns the slot: the answer is used in every conversation
-afterwards, which is more than most of the others can say.
+## Shell-owned checklist; Hermes only phrases
 
-## Questions are generated, not scripted
+The guided conversation is a fixed checklist owned by the shell, not a
+free-form interview the model steers:
 
-You do not follow a fixed question list. Instead, you're resolving a fixed
-set of **unknowns** through however many questions the conversation
-actually needs:
+1. `owner_name` — what to call them
+2. `role` — who they are and what this device is for
+3. `needs` — concrete tasks they want help with
+4. `vocabulary` — day-to-day terms and important entities
+5. `boundaries` — sensitivities / off-limits
+6. `communication` — formality, detail, pace
+7. `confirm` — summarize known facts; owner accepts
 
-1. Who the user is and what role they're setting this device up for
-2. What they want help with, concretely (not "everything" — specific tasks)
-3. The vocabulary and entities specific to their work (what they call
-   their customers, their records, their day-to-day terms)
-4. Boundaries: anything sensitive, off-limits, or requiring extra care
-5. How they want to be talked to (formality, detail level, pace)
+Hermes receives only the **current** open step plus locked facts already
+answered. It phrases one question for that step and stops. It does not
+choose the next step, mark steps done, run tools, check services, search
+sessions, or write memory during setup.
 
-Generate the actual question for each unknown from the conversation so
-far — a solo skincare practitioner and a doctor's clinic front desk get
-differently worded questions for the same underlying unknown. Ask about
-**one unknown at a time**. Compound questions ("what's your business and
-how many staff and what do you use now") are where small models lose
-track of which part of the answer maps to which fact — don't do it, even
-if it feels slower.
+**One question per reply, and the reply ends at the question mark.**
 
-**One question per reply, and the reply ends at the question mark.** Not
-one unknown per reply — one *question*. A reply that asks something, then
-adds "and do you also…", gets a single answer and silently loses the
-rest. This is the failure that actually shows up in practice: the model
-keeps going after the question because it has more it wants to know.
-Stop and wait for the answer.
+**Prefer questions the owner can answer with yes or no** when the step
+allows it. Use an open question only where yes/no cannot get there
+(vocabulary is the usual case).
 
-**Prefer questions the owner can answer with yes or no.** Someone setting
-up a device for the first time should not have to compose a sentence to
-get past the first screen. "Do you handle appointments for other people?"
-gets further than "What is your role?" — and a yes or a no is a real
-answer, to be taken and built on rather than re-asked in other words. Use
-an open question only where a yes/no genuinely cannot get there: what the
-owner calls their customers has no yes/no form.
+`chat-protocol.md` still applies so a stalled owner can get tappable
+likely answers — not so every step becomes a form.
 
-`chat-protocol.md` applies here as it does everywhere else, including
-its restraint: ask the question, and do not attach the answers to it.
-Fifteen questions each carrying a row of buttons is a form, which this
-conversation is specifically not allowed to become — and a question with
-its answers pinned underneath invites the owner to pick the nearest one
-rather than tell you what is true, which is the failure this whole
-section exists to prevent.
+A short, thin, declined, or "not sure" answer still completes the current
+step in shell state. Unresolved is valid; circling is not.
 
-Where it does earn its place is when the owner stalls: they ask what you
-mean, answer something that doesn't resolve the question, or say they
-aren't sure. Naming the likely answers then is help, because the problem
-was never typing — it was not knowing what you were asking.
+## The shell learns the device silently
 
-## The agent learns its device at the same time
+Before the greeting, the shell runs live Postgres and Redis checks and
+writes successful facts to Hermes `MEMORY.md`. Hermes is not asked to
+discover the device during onboarding. Failures stay silent and do not
+block learning about the owner.
 
-At the start of the guided conversation, load the shipped device-services
-skill. Use its exact live checks to discover whether Postgres and Redis are
-available and which server versions are actually running. Never infer a
-version from configuration or package metadata.
+Postgres is durable relational storage. Redis is ephemeral cache, queue,
+and session state. Never put the durable owner profile in Redis.
 
-Save successful checks, including when they were run, to Hermes `MEMORY.md`
-through the built-in `memory` tool's `memory` target. An unavailable service
-is not a reason to invent a version or block learning about the owner; report
-it plainly and leave that service fact unsaved.
+## Bounds
 
-Postgres is durable relational storage. Redis is ephemeral cache, queue, and
-session state. You are free to use either when it genuinely helps with the
-owner's work, following the device-services skill. Never put the durable owner
-profile or other lasting business knowledge in Redis.
-
-## Bounds: 5 to 15 questions
-
-Five is the floor — don't consider onboarding done with less, even if the
-user is terse, because that's not enough coverage of the five unknowns
-above. Fifteen is the hard ceiling — if you still don't have a clear
-picture after fifteen questions, stop asking and move on with what you
-have, explicitly noting what's still unclear rather than continuing to
-probe. An endless questionnaire is its own failure mode for a user who
-was told this device is simple.
-
-Between those bounds, stop as soon as you're actually confident, not
-mechanically at a fixed count. If the first five questions land clean
-answers covering all five unknowns, you're done. If answers are vague,
-that's when you spend the remaining budget on follow-ups — see below.
-
-## Guiding the user toward clarity
-
-Most users here won't have crisp answers ready, and won't necessarily
-have business-abstraction vocabulary even for their own work. When an
-answer is vague:
-
-- Ask a targeted follow-up on that same unknown before moving to the next
-  one. Don't paper over a vague answer to keep the question count down.
-- Offer concrete examples rather than repeating an open question. "Is it
-  mostly appointments?" gets further than "can you tell me more?" — a
-  vague open question is what produced the vague answer in the first
-  place. Keep it to one thing they can say yes or no to; a list of
-  options in one breath is a compound question wearing a disguise, and
-  it comes back as an answer you cannot map to a fact.
-- If the user answers a question you didn't ask, use that information for
-  the unknown it actually resolves, and don't force them back to the
-  original one.
+There is one shell turn per open step, plus confirm. No 5–15 free
+discovery budget. The interview ends when the owner accepts the confirm
+summary (or the shell has nothing left to ask and confirm runs with
+unresolved fields marked unresolved)ark that unknown done, and don't
+  force them back to the original one.
 
 ## Why small models hallucinate here, and how you avoid it
 
@@ -264,21 +213,22 @@ the confirm-before-commit step above is the safety net instead.
 
 ## Handoff
 
-Once onboarding ends — by reaching sufficient confidence or hitting the
-fifteen-question ceiling — summarize the resulting profile back to the
-user in one pass and give them a chance to correct anything before it
-becomes the persistent context every future conversation builds on. Their
-name belongs in that summary like everything else — it is the fact most
-likely to have been mistyped and the most grating to get wrong. Any
-unknown left unresolved stays marked unresolved; do not silently default
-it once onboarding formally ends.
+When every discovery step is done, the shell moves to `confirm`. Hermes
+summarizes the shell's known facts (including what to call them) and asks
+for acceptance with yes/no options. Corrections stay on confirm until the
+owner accepts.
 
-After the owner explicitly accepts the summary, write one compact atomic batch
-to Hermes' `memory` tool with `target: "user"`. That `USER.md` content is the
-canonical owner profile: what to call them, role, concrete needs,
-vocabulary/entities, boundaries, and communication preference. Do not duplicate the profile in Postgres or in
-the shell's settings store. Setup is complete only when the memory tool reports
-a committed successful write, not when the assistant merely says it remembered.
+After explicit acceptance, the **shell**:
 
-Start normal conversation in a fresh Hermes session after the write so the new
-`USER.md` and `MEMORY.md` snapshots are present in the system prompt.
+1. writes `USER.md` from the structured checklist
+2. sets `onboardingComplete`
+3. streams a fixed closing line (language-aware; includes what to call
+   them and the assistant name) — not a free-form Hermes goodbye
+4. drops the onboarding session
+
+Unresolved fields stay "not yet known". Do not duplicate the profile in
+Postgres. Setup is complete when the write succeeds and
+`onboardingComplete` is set — never when the model merely says it is done.
+
+Start normal conversation in a fresh Hermes session after the write so the
+new `USER.md` and `MEMORY.md` snapshots are present in the system prompt.

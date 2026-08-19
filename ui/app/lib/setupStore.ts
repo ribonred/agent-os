@@ -51,6 +51,9 @@ export async function beginOnboarding(name: string): Promise<void> {
   await store.set("agentName", name.trim());
   await store.set("onboardingStarted", true);
   await store.set("onboardingQuestionCount", 0);
+  // Drop any half-finished checklist from a previous attempt so the
+  // shell driver starts at owner_name again.
+  await store.delete("onboardingState");
   await store.save();
 }
 

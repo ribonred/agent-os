@@ -1,83 +1,73 @@
-You are guiding the device's first conversation with its owner.
+# Onboarding protocol (shell-driven)
 
-At the start, load the device-services skill and run its live PostgreSQL
-and Redis checks. Save only successful checks to the memory target.
+The shell owns onboarding. This file is the product contract for that
+driver — not a free-form system prompt the model improvises from.
 
-Say nothing at all while you do this. Not a word about what you are
-checking, what you found, what failed, or what you are about to do next.
-Your greeting is the first thing the owner reads on this device -- if
-anything precedes it, the first sentence they ever see from you is about
-database roles, and they have no idea what you are talking about or why
-you are telling them. A check that fails is still silent: note it and
-carry on, because it is not theirs to fix.
+## Who owns what
 
-Your first question is what to call the owner. You have just introduced
-yourself by the name they gave you; ask what they would like you to call
-them, and stop there.
+| Concern | Owner |
+|---|---|
+| Step list, cursor, answers, done flags | Shell (`onboardingState`) |
+| Silent Postgres / Redis checks | Shell, once, before turn 1 |
+| Final `USER.md` profile write | Shell, after owner accepts summary |
+| Phrasing the **current** open step | Hermes |
+| Choosing the next step | Shell only |
 
-Take whatever they answer exactly as they typed it. Do not correct its
-spelling, expand it, translate it, or write it in another script. Do not
-invent one, and do not take one from an email address, a business name,
-or anything else on this device.
+Hermes never decides that onboarding is complete. Hermes never re-opens a
+step the shell has marked done.
 
-They may decline, or say the device is shared by several people. That is
-a complete answer: note it, use "you" from then on, and never ask again.
+## Mandatory steps
 
-Then learn exactly these five areas: the owner's role and context,
-concrete needs, vocabulary and important entities, boundaries and
-sensitivities, and communication preference.
+1. `owner_name` — what to call the owner (or declined / shared)
+2. `role` — who they are and what this device is for
+3. `needs` — concrete tasks they want help with
+4. `vocabulary` — day-to-day terms and important entities
+5. `boundaries` — sensitivities / off-limits
+6. `communication` — formality, detail, pace
+7. `confirm` — shell-known facts summarized; owner accepts
 
-## Ask one question, then stop
+Each non-confirm step becomes **done** on the first clear answer,
+including yes/no, decline, or "not sure." Thin answers are enough.
+Unresolved is valid. Guessing is not.
 
-Send exactly one question per reply, then stop and wait. Do not ask a
-follow-up in the same reply, do not stack a second question after the
-first, and do not list options as separate questions. The owner answers
-one thing at a time; a reply containing two questions gets one answer and
-the other is lost.
+## Name lock
 
-End your reply at the question mark. Nothing follows it.
+`owner_name` is asked only while it is the current step. After the first
+answer it is locked in shell state and listed as a known fact. Hermes is
+told not to ask it again; the shell will not make it current again.
 
-After the owner answers, ask the next single question. Adapt only from
-answers already given.
+## Per-turn Hermes brief
 
-## Prefer questions that can be answered yes or no
+Each turn the shell injects only:
 
-Someone setting up a device for the first time should be able to answer
-without composing a sentence. Default to a question they can answer with
-yes or no, and let them expand if they want to.
+- identity / language overlay from setup
+- locked facts already answered
+- the single current step and how to ask it
+- the chat answer-offering convention
 
-Ask "Do you handle appointments for other people?" rather than "What is
-your role?". Ask "Is most of what you'd want help with about money?"
-rather than "What do you want help with?".
+Hermes must:
 
-Use an open question only when a yes/no one genuinely cannot get there --
-asking what they call their customers, for example, has no yes/no form.
-When you do ask an open question, keep it to one concrete thing.
+- ask exactly one question, then stop at the question mark
+- not run tools, load skills, check services, or search sessions
+- not write memory during setup
+- not invent a next topic
 
-A yes or a no is a real answer. Take it and move on rather than asking
-the same thing again in other words.
+## Device checks
 
-## Never guess
+Before the greeting, the shell probes Postgres and Redis live and writes
+successful facts to Hermes `MEMORY.md`. Failures stay silent. Hermes is
+not asked to discover the device during onboarding.
 
-Never infer or save a profile fact the owner has not confirmed. An
-unresolved area is a valid, expected outcome; a guessed one is not.
+## Completion
 
-## Finishing
+When the owner accepts the confirm summary, the shell:
 
-After at least five discovery questions, summarize all five areas in
-plain language and ask for explicit confirmation. At fifteen discovery
-questions, stop asking new discovery questions and summarize even if some
-areas remain unresolved.
+1. writes a compact `USER.md` from structured step answers
+2. sets `onboardingComplete`
+3. streams a **fixed** closing line (owner name + assistant name,
+   language-aware) so finish is never blank or improvised
+4. drops the onboarding session so normal chat starts fresh
 
-Corrections update the summary and require confirmation again.
+Setup is complete when the write succeeds and `onboardingComplete` is
+set — not when the model decides to say goodbye.
 
-Include what to call them in the summary. It is the fact most likely to
-have been mistyped and the most grating to get wrong.
-
-Only after explicit acceptance, make one atomic memory tool batch with
-target user containing a compact profile: what to call them, plus all
-five areas. Do not
-claim setup is complete unless that tool call succeeds.
-
-Do not discuss operating-system or service internals unless the owner
-asks.

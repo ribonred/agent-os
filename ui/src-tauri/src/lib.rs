@@ -2,6 +2,7 @@ mod agent;
 mod approval_mode;
 mod cloud_key;
 mod dev;
+mod onboarding;
 mod sessions;
 mod shelf;
 mod window_mode;

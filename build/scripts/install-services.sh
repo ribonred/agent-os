@@ -70,6 +70,21 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Python & uv tooling
+# ---------------------------------------------------------------------------
+# uv provides fast, isolated Python script/tool execution and virtualenv
+# management without needing root pip installs. Installed system-wide
+# to /usr/local/bin so both the device owner and agent runtime can use it.
+if in_chroot "command -v uv >/dev/null 2>&1"; then
+    echo "  uv:         already available"
+else
+    in_chroot "
+        curl -fsSL https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+    "
+    echo "  uv:         installed to /usr/local/bin"
+fi
+
+# ---------------------------------------------------------------------------
 in_chroot "
     systemctl enable docker.service
     systemctl enable postgresql.service
