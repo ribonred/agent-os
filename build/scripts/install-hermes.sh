@@ -70,6 +70,12 @@ in_chroot() {
 in_chroot "id -u '$HERMES_USER' >/dev/null 2>&1" \
     || die "device owner '$HERMES_USER' does not exist -- create it before installing the agent"
 
+# Their numeric id, needed further down to point the service at the
+# desktop session's runtime directory. Read from the image rather than
+# assumed: the account is created by the build, so this is fixed for the
+# image, but it is not this script that fixes it.
+DEVICE_UID="$(in_chroot "id -u '$HERMES_USER'")"
+
 install -d -m 700 -o "$HERMES_USER" -g "$HERMES_USER" "$ROOTFS$HERMES_HOME" 2>/dev/null \
     || in_chroot "install -d -m 700 -o '$HERMES_USER' -g '$HERMES_USER' '$HERMES_HOME'"
 
@@ -279,7 +285,7 @@ EOF
 cat >> "$ROOTFS$HERMES_HOME/config.yaml" <<'EOF'
 model:
   provider: openrouter
-  default: deepseek/deepseek-v4-flash-0731
+  default: z-ai/glm-5.3
   base_url: https://openrouter.ai/api/v1
   api_mode: chat_completions
 
@@ -317,6 +323,50 @@ approvals:
     - "*cloud-keys.toml*"
 EOF
 
+# ---------------------------------------------------------------------------
+# The owner's browser
+# ---------------------------------------------------------------------------
+# Skipped along with the browser itself: a build without one has nothing
+# to attach to, and the agent's own headless browser -- invisible, but
+# working -- is then the right fallback rather than a broken pointer at a
+# browser that was never installed. Same switch install-desktop.sh reads.
+if [ "${BROWSER_SKIP:-0}" = "1" ]; then
+    echo "  browser:  not configured (BROWSER_SKIP=1)"
+else
+cat >> "$ROOTFS$HERMES_HOME/config.yaml" <<'EOF'
+
+# The owner's browser is the only browser on the device, and it always
+# carries a control channel on loopback (see
+# /usr/local/bin/agentic-browser). Naming it here is what makes "find me
+# an article and open it" happen in the window the owner is looking at.
+#
+# Without this the agent starts a browser of its own, headless, in a
+# profile signed in to nothing. It answers correctly and the owner sees
+# an empty screen -- the worst kind of failure for this product, because
+# nothing reports an error.
+browser:
+  cdp_url: http://127.0.0.1:9222
+
+# ... and the browser is opened before it is needed, rather than the
+# agent being expected to remember. The hook runs on every browser tool
+# call, returns immediately when the browser is already up, and blocks
+# the call with something sayable when it could not be opened at all.
+#
+# Consent for shipped hooks is granted here because it cannot be granted
+# anywhere else: the prompt it would otherwise print wants a terminal,
+# and this hook is part of the image rather than something the owner
+# added.
+hooks_auto_accept: true
+
+hooks:
+  pre_tool_call:
+    - matcher: "browser_.*"
+      command: /usr/local/bin/agentic-browser --ensure
+      timeout: 30
+EOF
+    echo "  browser:  driven through 127.0.0.1:9222, opened on demand"
+fi
+
 # The agent runs as its own user and must be able to read -- and rewrite,
 # when the owner changes something through it -- its own config.
 in_chroot "chown $HERMES_USER:$HERMES_USER '$HERMES_HOME/config.yaml'"
@@ -351,6 +401,23 @@ Environment=API_SERVER_HOST=127.0.0.1
 Environment=API_SERVER_PORT=8642
 # The appliance boundary, stated at the same layer where host facts are
 # injected: the agent uses the OS, the owner uses the device.
+# The desktop session the owner is sitting in front of.
+#
+# Without these the agent's shell has no screen: it is a system service,
+# started before anyone logs in, so anything it opens for the owner opens
+# nowhere. It also makes "open this file" resolve against the same
+# applications the owner's own session uses -- without the session bus,
+# file associations fall back to a system-wide default, and the owner
+# watches the device open their documents in the wrong application.
+#
+# Static values, because the device has exactly one seat and one owner
+# and the image fixes both. What is not static -- the X authority file,
+# whose name is generated per session -- is picked up at launch time by
+# /usr/local/bin/agentic-browser instead.
+Environment=XDG_RUNTIME_DIR=/run/user/$DEVICE_UID
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$DEVICE_UID/bus
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=DISPLAY=:0
 Environment=HERMES_ENVIRONMENT_HINT="Treat the host operating system and its package/configuration machinery as internal appliance implementation details. Use them silently when operating the device. Do not volunteer or narrate Linux, Ubuntu, packages, services, or system configuration to the owner. Describe outcomes in terms of the device and the owner's task. If the owner explicitly asks for technical details, answer accurately in plain language.\\n\\nYou administer this device and have full read/write access to it, including root via sudo. If something appears to fail on permissions, it is a real error worth reporting -- not a boundary you should assume and work around.\\n\\n/home/$DEVICE_USER is the owner's home and your working directory. Their files live there, and anything you create for them belongs there -- Documents and Downloads already exist. Keep your own state in $HERMES_HOME and leave the rest of their home to them: it is what the file view in the interface shows, so anything you scatter there is clutter they have to look at."
 
 # Per-unit secrets: API_SERVER_KEY (bearer token) and OPENROUTER_API_KEY

@@ -79,6 +79,28 @@ broaden deny to config.yaml; the owner has no other admin surface.
 **Network.** Gateway is loopback only. Full toolset including terminal
 is behind that bearer token.
 
+**Browser.** The device has one browser and the agent drives it, so the
+owner sees what it does. Three pieces, all in `install-hermes.sh` /
+`install-desktop.sh`, and they only work together:
+
+- `/usr/local/bin/agentic-browser` — the only launch path. Chrome
+  refuses `--remote-debugging-port` on its own default profile, so the
+  profile moves; the desktop entries are shadowed in
+  `/usr/local/share/applications` to route through it.
+- `browser.cdp_url: http://127.0.0.1:9222` in `config.yaml` — without
+  it the agent spawns its own headless browser and the owner sees
+  nothing. Skipped under `BROWSER_SKIP=1`, where headless is correct.
+- `hooks.pre_tool_call` matching `browser_.*` runs
+  `agentic-browser --ensure`, which opens the browser or blocks the
+  call. Needs `hooks_auto_accept: true` — hook consent otherwise wants
+  a TTY that no device has.
+
+The gateway unit also carries `XDG_RUNTIME_DIR`,
+`DBUS_SESSION_BUS_ADDRESS`, `WAYLAND_DISPLAY`, `DISPLAY`. A system
+service has no session, so without them anything the agent opens for
+the owner opens on no screen, and `gio open` picks system-wide file
+associations instead of the session's.
+
 ## Dev
 
 ```

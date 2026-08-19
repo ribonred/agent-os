@@ -477,7 +477,49 @@ fn upsert_memory_line(existing: &str, needle: &str, line: &str) -> String {
     out
 }
 
-pub fn compose_user_profile(state: &OnboardingState, agent_name: Option<&str>) -> String {
+/// Human name for a setup language code. Kept here so USER.md and the
+/// chat overlay agree on spelling without depending on agent.rs.
+pub fn language_display_name(code: &str) -> Option<&'static str> {
+    match code.trim() {
+        "id" => Some("Bahasa Indonesia"),
+        "en" => Some("English"),
+        "zh" => Some("Mandarin Chinese (Simplified)"),
+        "ja" => Some("Japanese"),
+        "ko" => Some("Korean"),
+        "vi" => Some("Vietnamese"),
+        "th" => Some("Thai"),
+        "ms" => Some("Malay"),
+        "tl" => Some("Filipino (Tagalog)"),
+        "hi" => Some("Hindi"),
+        _ => None,
+    }
+}
+
+/// Hard language pin written into USER.md. Hermes injects USER.md into
+/// the durable system prompt; a soft per-turn overlay alone is not enough
+/// once tool output is in English and models start code-switching.
+pub fn language_pin_block(language_code: Option<&str>) -> Option<String> {
+    let code = language_code.map(str::trim).filter(|value| !value.is_empty())?;
+    let name = language_display_name(code).unwrap_or(code);
+    Some(format!(
+        "## Language (required)\n\n\
+         - Preferred language: {name} (code: {code})\n\
+         - Always reply to the owner in {name}.\n\
+         - Do not switch to English, Spanish, or any other language unless \
+the owner clearly writes in that language in their own message.\n\
+         - Tool output, file contents, CLI logs, error strings, and URLs do \
+not count as the owner switching languages — translate or summarize them \
+in {name}.\n\
+         - Thinking-aloud, progress updates, and status lines must also be \
+in {name}."
+    ))
+}
+
+pub fn compose_user_profile(
+    state: &OnboardingState,
+    agent_name: Option<&str>,
+    language_code: Option<&str>,
+) -> String {
     let mut lines = Vec::new();
     lines.push("# Owner profile".to_string());
     lines.push(String::new());
@@ -486,6 +528,14 @@ pub fn compose_user_profile(state: &OnboardingState, agent_name: Option<&str>) -
          Facts below are owner-given; unresolved means not yet known."
             .to_string(),
     );
+    lines.push(String::new());
+
+    if let Some(pin) = language_pin_block(language_code) {
+        lines.push(pin);
+        lines.push(String::new());
+    }
+
+    lines.push("## About the owner".to_string());
     lines.push(String::new());
     if let Some(name) = agent_name.map(str::trim).filter(|value| !value.is_empty()) {
         lines.push(format!("- Assistant name: {name}"));
@@ -522,13 +572,108 @@ pub fn compose_user_profile(state: &OnboardingState, agent_name: Option<&str>) -
 pub fn write_user_profile(
     state: &OnboardingState,
     agent_name: Option<&str>,
+    language_code: Option<&str>,
 ) -> Result<PathBuf, String> {
     let home = hermes_home();
     std::fs::create_dir_all(&home).map_err(|e| format!("create hermes home: {e}"))?;
     let path = home.join("USER.md");
-    let body = compose_user_profile(state, agent_name);
+    let body = compose_user_profile(state, agent_name, language_code);
     std::fs::write(&path, body).map_err(|e| format!("write USER.md: {e}"))?;
     Ok(path)
+}
+
+/// Rewrite only the language pin in an existing USER.md (or create a
+/// minimal profile). Used when the owner already finished setup before
+/// language was stored in the profile.
+pub fn upsert_language_pin_in_user_md(language_code: &str) -> Result<PathBuf, String> {
+    let pin = language_pin_block(Some(language_code))
+        .ok_or_else(|| "language code is empty".to_string())?;
+    let home = hermes_home();
+    std::fs::create_dir_all(&home).map_err(|e| format!("create hermes home: {e}"))?;
+    let path = home.join("USER.md");
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    let body = if existing.trim().is_empty() {
+        format!("# Owner profile\n\n{pin}\n")
+    } else if existing.contains("## Language (required)") {
+        replace_language_section(&existing, &pin)
+    } else {
+        insert_pin_after_title(&existing, &pin)
+    };
+    let body = if body.ends_with('\n') {
+        body
+    } else {
+        format!("{body}\n")
+    };
+    std::fs::write(&path, body).map_err(|e| format!("write USER.md: {e}"))?;
+    Ok(path)
+}
+
+fn replace_language_section(existing: &str, pin: &str) -> String {
+    let mut out = String::new();
+    let mut skipping = false;
+    let mut replaced = false;
+    for line in existing.lines() {
+        if line.trim() == "## Language (required)" {
+            if !replaced {
+                out.push_str(pin);
+                out.push('\n');
+                replaced = true;
+            }
+            skipping = true;
+            continue;
+        }
+        if skipping {
+            // End of the language block: next section heading, or owner
+            // fields that sit directly under the old profile root.
+            let trimmed = line.trim();
+            let end = trimmed.starts_with("## ")
+                || trimmed.starts_with("- Assistant name:")
+                || trimmed.starts_with("- Call the owner:")
+                || trimmed.starts_with("- Role and context:");
+            if end {
+                skipping = false;
+                if !trimmed.is_empty() {
+                    out.push('\n');
+                    out.push_str(line);
+                    out.push('\n');
+                }
+            }
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    if replaced {
+        out
+    } else {
+        insert_pin_after_title(existing, pin)
+    }
+}
+
+fn insert_pin_after_title(existing: &str, pin: &str) -> String {
+    let lines: Vec<&str> = existing.lines().collect();
+    if lines.first().is_some_and(|line| line.starts_with("# ")) {
+        let mut out = Vec::new();
+        out.push(lines[0].to_string());
+        out.push(String::new());
+        out.push(pin.to_string());
+        out.push(String::new());
+        let rest = if lines.len() > 1 && lines[1].trim().is_empty() {
+            &lines[2..]
+        } else {
+            &lines[1..]
+        };
+        for line in rest {
+            out.push((*line).to_string());
+        }
+        let mut body = out.join("\n");
+        if !body.ends_with('\n') {
+            body.push('\n');
+        }
+        body
+    } else {
+        format!("# Owner profile\n\n{pin}\n\n{existing}")
+    }
 }
 
 /// Per-turn instructions: only the current step, plus locked facts.
@@ -748,10 +893,13 @@ mod tests {
     fn profile_lists_unresolved_when_thin() {
         let mut state = OnboardingState::fresh();
         state.apply_owner_reply("John");
-        let profile = compose_user_profile(&state, Some("Brian"));
+        let profile = compose_user_profile(&state, Some("Brian"), Some("id"));
         assert!(profile.contains("Assistant name: Brian"));
         assert!(profile.contains("Call the owner: John"));
         assert!(profile.contains("Role and context: not yet known"));
+        assert!(profile.contains("## Language (required)"));
+        assert!(profile.contains("Bahasa Indonesia"));
+        assert!(profile.contains("Tool output"));
     }
 
     #[test]
@@ -787,6 +935,20 @@ mod tests {
         assert!(is_acceptance("Yes"));
         assert!(is_acceptance("benar"));
         assert!(!is_acceptance("school staff"));
+    }
+
+    #[test]
+    fn language_pin_survives_user_md_upsert() {
+        let pin = language_pin_block(Some("id")).unwrap();
+        assert!(pin.contains("Bahasa Indonesia"));
+        let base = "# Owner profile\n\nWritten by the device shell.\n\n## About the owner\n\n- Assistant name: Yuga\n";
+        let with = insert_pin_after_title(base, &pin);
+        assert!(with.contains("## Language (required)"));
+        assert!(with.contains("Assistant name: Yuga"));
+        let again = replace_language_section(&with, &language_pin_block(Some("en")).unwrap());
+        assert!(again.contains("English"));
+        assert!(!again.contains("Bahasa Indonesia"));
+        assert!(again.contains("Assistant name: Yuga"));
     }
 
     #[test]

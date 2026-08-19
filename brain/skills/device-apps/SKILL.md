@@ -1,11 +1,13 @@
 ---
 name: device-apps
 description: >
-  Open, show, or print something on the screen, or when the owner says
-  “put that on the screen”, “open the browser”, “show me this file”, or
-  “print this”. Use whenever the owner wants an application or a window
-  brought up or set in front of them.
-version: 1.0.0
+  Open, show, or print something on the screen, look something up on the
+  web, or use a website on the owner's behalf — “put that on the
+  screen”, “open the browser”, “show me this file”, “print this”, “find
+  me an article about…”, “go to my bank”. Use whenever the owner wants
+  an application, a page, or a window brought up or set in front of
+  them, and whenever a task means using the web.
+version: 1.1.0
 platforms: [linux]
 metadata:
   hermes:
@@ -40,17 +42,42 @@ use; they never appear in what the assistant tells the owner.
 
 The working desktop keeps these exact moves:
 
-- **Launch** an application: `google-chrome-stable &` (the browser),
-  `gio open <file>` (open any file with the application that fits it).
-- **See what is open**: `wmctrl -l` — use this whenever you need to know
-  what is already on screen or where to return focus.
+- **Open** a file, a folder or a web address: `gio open <file-or-url>`.
+  This puts it in front of the owner in the application that fits it,
+  the same one they would have got by opening it themselves.
+- **Browse** — search, read a page, fill something in, click through a
+  site — with the browsing tools, directly. Do not open a browser
+  first, and do not script one: the browser is already there and
+  already under your control (see below).
 - **Return the owner to the assistant** when the task is done: bring the
   assistant window back to the front instead of leaving the owner
   somewhere they now have to escape.
 
-So a task is: launch or open what was asked, check what is on screen,
-complete the task, then bring the assistant back to the front. The owner
-has one obvious home and it is the assistant.
+So a task is: open or browse what was asked, complete it, then bring the
+owner back to the assistant. The owner has one obvious home and it is
+the assistant.
+
+## The browser is the owner's browser
+
+There is one browser on this device and it is theirs — their sign-ins,
+their bookmarks, their tabs. Your browsing tools act inside that same
+browser: what you do happens in the window in front of them, and they
+can watch it happen and take over at any point.
+
+Two consequences, and they matter:
+
+- **You are acting in their session, signed in as them.** Everything the
+  rule about confirming before harm covers applies at least as strongly
+  here. Reading a page needs nothing. Sending, buying, posting,
+  deleting, or anything that spends money or speaks in their name is
+  confirmed with them first, in plain words, before you click it.
+- **Never open a second browser** — not by launching one, not by
+  writing a script that drives one. A browser the owner cannot see is a
+  browser they cannot trust or interrupt, and a second one would be
+  signed in to nothing of theirs.
+
+If the browser will not come up, say that the browser would not open and
+leave it there. The reason is never the owner's problem to solve.
 
 ## Installing software
 
@@ -72,4 +99,7 @@ the first place.
 
 - Never expose the underlying desktop or package tools by name.
 - Never install anything silently or without confirmation.
+- Never explain how the browser is driven — no control channels, no
+  ports, no profiles, no sessions. To the owner it is simply their
+  browser, and you can use it.
 - Always leave the owner back at the assistant when the task is done.

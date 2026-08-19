@@ -8,9 +8,19 @@
 // device that is switched off.
 
 import { parseReply, streamingText } from "~/lib/chatProtocol";
+import {
+  DEFAULT_CHAT_WIDTH,
+  MIN_CHAT_WIDTH,
+  MAX_CHAT_WIDTH,
+  getChatWidth,
+  setChatWidth,
+} from "~/lib/shelfStore";
 
 const { collapsed = false } = defineProps<{ collapsed?: boolean }>();
 const emit = defineEmits<{ "update:collapsed": [value: boolean] }>();
+
+const paneWidth = ref(DEFAULT_CHAT_WIDTH);
+const isResizing = ref(false);
 
 const {
   entries,
@@ -65,12 +75,81 @@ const { items: contextItems } = useContext();
 const hasContext = computed(() => contextItems.value.length > 0);
 
 onMounted(async () => {
+  paneWidth.value = await getChatWidth();
   await connect();
   // Back where they left it, then scrolled to the end of it -- the
   // owner returns to the last thing that was said, not to the first.
   await restore();
   await autoscroll();
 });
+
+// Dragging the right border sizes the conversation to what suits the
+// owner's desk; double-clicking returns to the default measure.
+function onResizeStart(event: PointerEvent | MouseEvent) {
+  event.preventDefault();
+  isResizing.value = true;
+
+  const prevCursor = document.body.style.cursor;
+  const prevUserSelect = document.body.style.userSelect;
+  document.body.style.cursor = "col-resize";
+  document.body.style.userSelect = "none";
+
+  function onPointerMove(e: PointerEvent | MouseEvent) {
+    const minW = MIN_CHAT_WIDTH;
+    const maxAvailable =
+      typeof window !== "undefined"
+        ? window.innerWidth - 260
+        : MAX_CHAT_WIDTH;
+    const maxW = Math.max(minW, Math.min(MAX_CHAT_WIDTH, maxAvailable));
+    const nextWidth = Math.max(minW, Math.min(maxW, e.clientX));
+    paneWidth.value = Math.round(nextWidth);
+  }
+
+  async function onPointerUp() {
+    isResizing.value = false;
+    document.body.style.cursor = prevCursor;
+    document.body.style.userSelect = prevUserSelect;
+    window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup", onPointerUp);
+    window.removeEventListener("pointercancel", onPointerUp);
+    await setChatWidth(paneWidth.value);
+  }
+
+  window.addEventListener("pointermove", onPointerMove);
+  window.addEventListener("pointerup", onPointerUp);
+  window.addEventListener("pointercancel", onPointerUp);
+}
+
+async function onResetWidth() {
+  paneWidth.value = DEFAULT_CHAT_WIDTH;
+  await setChatWidth(DEFAULT_CHAT_WIDTH);
+}
+
+async function onResizeKeydown(event: KeyboardEvent) {
+  const step = 24;
+  const maxAvailable =
+    typeof window !== "undefined"
+      ? window.innerWidth - 260
+      : MAX_CHAT_WIDTH;
+  const maxW = Math.max(MIN_CHAT_WIDTH, Math.min(MAX_CHAT_WIDTH, maxAvailable));
+
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    paneWidth.value = Math.max(MIN_CHAT_WIDTH, paneWidth.value - step);
+    await setChatWidth(paneWidth.value);
+  } else if (event.key === "ArrowRight") {
+    event.preventDefault();
+    paneWidth.value = Math.min(maxW, paneWidth.value + step);
+    await setChatWidth(paneWidth.value);
+  } else if (event.key === "Home") {
+    event.preventDefault();
+    paneWidth.value = MIN_CHAT_WIDTH;
+    await setChatWidth(paneWidth.value);
+  } else if (event.key === "End") {
+    event.preventDefault();
+    await onResetWidth();
+  }
+}
 
 /// The answers offered with the reply the owner is looking at -- only
 /// the last one, and only once it has finished arriving. A half-written
@@ -122,7 +201,10 @@ async function onPick(option: string) {
 </script>
 
 <template>
-  <aside :class="['pane', { collapsed }]">
+  <aside
+    :class="['pane', { collapsed, resizing: isResizing }]"
+    :style="collapsed ? undefined : { width: `${paneWidth}px`, flexBasis: `${paneWidth}px` }"
+  >
     <template v-if="collapsed">
       <button
         type="button"
@@ -247,6 +329,22 @@ async function onPick(option: string) {
         @close="history = false"
         @open="onOpenSession"
       />
+
+      <!-- The divider the owner can pull to size the pane to their
+           preference. Double-clicking returns to the default measure. -->
+      <div
+        class="resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize conversation pane"
+        :aria-valuenow="paneWidth"
+        :aria-valuemin="MIN_CHAT_WIDTH"
+        :aria-valuemax="MAX_CHAT_WIDTH"
+        tabindex="0"
+        @pointerdown="onResizeStart"
+        @dblclick.stop="onResetWidth"
+        @keydown="onResizeKeydown"
+      />
     </template>
   </aside>
 </template>
@@ -261,6 +359,8 @@ async function onPick(option: string) {
   height: 100vh;
   flex: 0 0 460px;
   width: 460px;
+  min-width: 320px;
+  max-width: calc(100vw - 260px);
   padding: 1.25rem 0 1.5rem;
   gap: 0.75rem;
   border-right: 1px solid rgba(255, 255, 255, 0.05);
@@ -268,10 +368,51 @@ async function onPick(option: string) {
   transition: flex-basis 0.28s ease, width 0.28s ease;
 }
 
+.pane.resizing {
+  transition: none;
+  user-select: none;
+}
+
 .pane.collapsed {
   flex-basis: 72px;
   width: 72px;
+  min-width: 72px;
+  max-width: 72px;
   padding: 0;
+}
+
+/* The divider the owner can pull to size the pane to their preference.
+   Wide enough to grab comfortably, unobtrusive when idle. */
+.resizer {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+  touch-action: none;
+}
+
+.resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.resizer:hover::after,
+.resizer:focus-visible::after,
+.pane.resizing .resizer::after {
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.resizer:focus-visible {
+  outline: none;
 }
 
 /* Collapsed: the orb alone, centered, and the whole rail restores it */

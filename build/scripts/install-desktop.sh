@@ -22,6 +22,8 @@ UI_BUNDLE="${3:-}"
 # takes, for the same reason.
 REPO="${4:-}"
 
+die() { printf '\033[1;31merror: %s\033[0m\n' "$*" >&2; exit 1; }
+
 in_chroot() {
     chroot "$ROOTFS" /usr/bin/env -i \
         HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
@@ -195,7 +197,143 @@ EOF
         apt-get update -qq
         apt-get install -y --no-install-recommends google-chrome-stable
     "
+
+    # -----------------------------------------------------------------
+    # One browser, and the assistant can drive it
+    # -----------------------------------------------------------------
+    # The owner asks the assistant to open a page and expects the page to
+    # appear in front of them, in their browser, signed in to the things
+    # they are signed in to. That only works if the assistant drives the
+    # same browser the owner uses -- so the browser is launched, always,
+    # in a way that lets it be driven, and there is exactly one of them.
+    #
+    # The launcher below is the single place that knows how; the desktop's
+    # own browser entries are then pointed at it, so no launch path can
+    # miss it.
+    install -D -m 755 /dev/stdin "$ROOTFS/usr/local/bin/agentic-browser" <<'AGENTIC_BROWSER'
+#!/usr/bin/env bash
+#
+# The device's browser.
+#
+# Every way the browser can start goes through here: the dock, a file the
+# owner opens, a page the assistant opens. That uniformity is the point.
+# The browser always exposes a control channel on the loopback interface,
+# so the assistant can act in the window the owner is already looking at
+# instead of opening a second, signed-out one they never see.
+#
+# Called with arguments it behaves exactly like the browser (it is the
+# browser, plus the flags). Called with --ensure it makes sure the browser
+# is up and driveable, and says so if it could not be.
+
+set -euo pipefail
+
+BROWSER=/usr/bin/google-chrome-stable
+
+# The control channel is refused outright when the browser runs out of the
+# profile directory it would pick by itself -- a deliberate upstream
+# hardening with no flag to disable it. So the profile lives elsewhere.
+# This is still the owner's own profile and their only one: their
+# sign-ins, bookmarks and history are here. Nothing is split in two.
+PORT="${AGENTIC_BROWSER_PORT:-9222}"
+PROFILE="${AGENTIC_BROWSER_PROFILE:-$HOME/.local/share/agentic-os/browser}"
+
+# --ozone-platform-hint=auto rather than a fixed platform: the shipped
+# session is Wayland, but the secondary hardware tier runs its vendor's
+# own OS and may not be, and a browser that refuses to start there is a
+# worse failure than one that goes through X11.
+FLAGS=(
+    "--user-data-dir=$PROFILE"
+    "--remote-debugging-port=$PORT"
+    --ozone-platform-hint=auto
+    --no-first-run
+    --no-default-browser-check
+)
+
+control_channel_up() {
+    curl -fsS --max-time 1 "http://127.0.0.1:$PORT/json/version" >/dev/null 2>&1
+}
+
+# The assistant's runtime is a background service. It is started before
+# anyone logs in and so has no desktop session in its environment: a
+# window opened from there would land on no screen at all. The session's
+# own manager is asked where the screen is rather than guessing, because
+# the X authority file in particular is named freshly per session.
+adopt_desktop_session() {
+    if [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
+        return 0
+    fi
+    export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+    local session_env
+    session_env="$(systemctl --user show-environment 2>/dev/null \
+        | grep -E '^(DISPLAY|WAYLAND_DISPLAY|XAUTHORITY|DBUS_SESSION_BUS_ADDRESS)=' \
+        | sed 's/^/export /')" || return 0
+    if [ -n "$session_env" ]; then
+        # show-environment quotes what needs quoting, so this is the
+        # intended way to read it back.
+        eval "$session_env"
+    fi
+}
+
+if [ "${1:-}" = "--ensure" ]; then
+    control_channel_up && exit 0
+
+    adopt_desktop_session
+    # setsid, not a bare background job: whatever asked for the browser
+    # may be killed or timed out the moment this returns, and the browser
+    # must outlive it.
+    setsid "$BROWSER" "${FLAGS[@]}" </dev/null >/dev/null 2>&1 &
+
+    # Opened windows are not driveable windows. Waiting for the control
+    # channel is the difference between the assistant acting on the page
+    # and the assistant reporting an error it cannot explain.
+    for _ in $(seq 1 40); do
+        control_channel_up && exit 0
+        sleep 0.5
+    done
+
+    # Said in a form the assistant's runtime understands as "stop here",
+    # because continuing means driving a browser that is not on screen --
+    # exactly the confusion this file exists to prevent.
+    printf '%s\n' '{"action": "block", "message": "The browser did not come up on the screen, so there is nothing to open the page in. Tell the owner the browser would not open and ask them to try again; do not describe profiles, ports or sessions to them."}'
+    exit 2
+fi
+
+adopt_desktop_session
+exec "$BROWSER" "${FLAGS[@]}" "$@"
+AGENTIC_BROWSER
+
+    # The desktop's browser entries, rewritten to start the browser
+    # through the launcher. Two of them: the browser ships a legacy id and
+    # a reverse-DNS one, and file associations on this system point at
+    # either, so both have to lead to the same place.
+    #
+    # Shadowed rather than edited. /usr/local/share/applications takes
+    # precedence over /usr/share/applications, and the browser's own
+    # package owns the files there -- an upgrade would quietly restore its
+    # own launch command and the assistant would lose the browser with no
+    # visible change to explain it.
+    install -d -m 755 "$ROOTFS/usr/local/share/applications"
+    for entry in google-chrome com.google.Chrome; do
+        src="$ROOTFS/usr/share/applications/$entry.desktop"
+        [ -f "$src" ] || continue
+        sed -E 's|^(Exec=)\S*google-chrome-stable|\1/usr/local/bin/agentic-browser|' \
+            "$src" > "$ROOTFS/usr/local/share/applications/$entry.desktop"
+        chmod 644 "$ROOTFS/usr/local/share/applications/$entry.desktop"
+    done
+    in_chroot "update-desktop-database /usr/local/share/applications" || true
+
+    # Assert rather than trust: if the browser package ever changes how it
+    # spells its own launch command, the rewrite above silently does
+    # nothing and the assistant silently loses the ability to browse.
+    in_chroot "
+        grep -q '^Exec=/usr/local/bin/agentic-browser' \
+            /usr/local/share/applications/google-chrome.desktop
+    " || die "browser entries were not rewritten to the device launcher --
+the assistant would open a browser it cannot drive. Check the Exec lines in
+/usr/share/applications/google-chrome.desktop against the rewrite above."
+
     echo "  browser:   google-chrome-stable (from Google's apt repo)"
+    echo "             launched via /usr/local/bin/agentic-browser, driveable on 127.0.0.1:9222"
 fi
 
 # ---------------------------------------------------------------------------

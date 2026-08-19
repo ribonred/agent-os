@@ -152,18 +152,17 @@ fn compose_overlay(
     let mut parts: Vec<String> = Vec::new();
     if let Some(name) = name.and_then(sanitize_name) {
         parts.push(format!(
-            "Your owner has named you {name}. That is your name -- use \
-             it naturally when you introduce yourself or when asked, \
-             and never claim a different name or identity."
+            "Your owner has named you {name}. That is your name -- use it naturally when you introduce yourself or when asked, and never claim a different name or identity."
         ));
     }
     if let Some(text) = persona.and_then(persona_overlay) {
         parts.push(text.to_string());
     }
     if let Some(lang) = language.and_then(language_name) {
+        // Hard pin: tool/log English is not a language switch. Same rule
+        // is written into USER.md so it survives in Hermes' durable prompt.
         parts.push(format!(
-            "Reply in {lang} by default; follow the user's lead if they \
-             switch languages."
+            "Language (required): reply only in {lang}. Do not switch to English, Spanish, or any other language unless the owner clearly writes in that language in their own message. Tool output, file contents, CLI logs, and error strings are not a language switch - translate or summarize them in {lang}."
         ));
     }
     (!parts.is_empty()).then(|| parts.join("\n\n"))
@@ -912,6 +911,16 @@ pub async fn agent_chat(
         None => chat_overlay(&app),
     };
 
+    
+    // Keep the durable USER.md language pin in sync with setup. Hermes
+    // loads USER.md into the system prompt; without this, a profile written
+    // before the pin existed keeps drifting on weaker models.
+    if let Some(code) = crate::onboarding::language_from_store(&app) {
+        if let Err(error) = crate::onboarding::upsert_language_pin_in_user_md(&code) {
+            log::warn!("could not pin language in USER.md: {error}");
+        }
+    }
+
     let mut session_id = session.chat.lock().await;
     // The conversation the device was last in, if this process has not
     // been told about it yet. Held here and not only where the pane asks
@@ -1018,7 +1027,11 @@ pub async fn agent_onboarding_chat(
                     agent_name.as_deref(),
                     language.as_deref(),
                 );
-                crate::onboarding::write_user_profile(&state, agent_name.as_deref())?;
+                crate::onboarding::write_user_profile(
+                    &state,
+                    agent_name.as_deref(),
+                    language.as_deref(),
+                )?;
                 state.profile_written = true;
                 crate::onboarding::save_state(&app, &state)?;
                 crate::onboarding::mark_setup_complete(&app)?;
@@ -1100,8 +1113,6 @@ pub async fn agent_onboarding_chat(
 mod tests {
     use super::*;
 
-    #[test]
-    #[test]
     #[test]
     fn run_started_from_session_chat_carries_the_run_id() {
         let record = "event: run.started\ndata: {\"run_id\": \"run_abc\", \"session_id\": \"s1\"}\n";
@@ -1399,7 +1410,8 @@ mod tests {
         assert!(full.contains("warm and patient"));
         assert!(full.contains("Bahasa Indonesia"));
         let lang_only = compose_overlay(None, Some("garbage"), Some("ja")).unwrap();
-        assert!(lang_only.starts_with("Reply in Japanese"));
+        assert!(lang_only.contains("Japanese"));
+        assert!(lang_only.contains("reply only in") || lang_only.contains("Language (required)"));
     }
 
     fn transcript_for_memory_call(target: &str, result: serde_json::Value) -> serde_json::Value {
