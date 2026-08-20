@@ -16,7 +16,14 @@ import {
   setChatWidth,
 } from "~/lib/shelfStore";
 
-const { collapsed = false } = defineProps<{ collapsed?: boolean }>();
+// `fill` means the file view is folded away and this pane is the whole
+// window: the stored width is a measure to sit beside something, and
+// holding it here would leave the owner staring at the gap they just
+// asked to get rid of.
+const { collapsed = false, fill = false } = defineProps<{
+  collapsed?: boolean;
+  fill?: boolean;
+}>();
 const emit = defineEmits<{ "update:collapsed": [value: boolean] }>();
 
 const paneWidth = ref(DEFAULT_CHAT_WIDTH);
@@ -202,8 +209,8 @@ async function onPick(option: string) {
 
 <template>
   <aside
-    :class="['pane', { collapsed, resizing: isResizing }]"
-    :style="collapsed ? undefined : { width: `${paneWidth}px`, flexBasis: `${paneWidth}px` }"
+    :class="['pane', { collapsed, fill, resizing: isResizing }]"
+    :style="collapsed || fill ? undefined : { width: `${paneWidth}px`, flexBasis: `${paneWidth}px` }"
   >
     <template v-if="collapsed">
       <button
@@ -311,17 +318,13 @@ async function onPick(option: string) {
           :disabled="busy || daemonError !== null"
           @submit="onSubmit"
         />
-        <!-- Only while there is something to interrupt: a control that
-             does nothing most of the time is one the owner learns to
-             ignore. -->
+        
         <button v-if="busy" type="button" class="stop" @click="stop">
           Stop
         </button>
       </form>
 
-      <!-- While a reply is arriving the list still opens and reads, but
-           the rows do not respond: the reply has somewhere to land, and
-           a question the device asked has somewhere to be answered. -->
+      
       <HistoryDrawer
         v-if="history"
         :current="sessionId"
@@ -331,8 +334,11 @@ async function onPick(option: string) {
       />
 
       <!-- The divider the owner can pull to size the pane to their
-           preference. Double-clicking returns to the default measure. -->
+           preference. Double-clicking returns to the default measure.
+           Gone while this pane is the whole window: there is nothing on
+           the other side of it to give width to. -->
       <div
+        v-if="!fill"
         class="resizer"
         role="separator"
         aria-orientation="vertical"
@@ -371,6 +377,15 @@ async function onPick(option: string) {
 .pane.resizing {
   transition: none;
   user-select: none;
+}
+
+/* Class over element selector, so this still wins inside the width
+   media queries further down regardless of source order. */
+.pane.fill {
+  flex: 1 1 auto;
+  width: auto;
+  max-width: none;
+  border-right: none;
 }
 
 .pane.collapsed {

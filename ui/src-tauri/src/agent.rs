@@ -362,15 +362,7 @@ async fn post_json(
     Ok((status, body.to_vec()))
 }
 
-/// `source` tags the conversation so the shell can tell its own apart
-/// from everything else the gateway stores. Only the owner's chat gets a
-/// tag: setup, and anything else on the box, stay on the gateway's
-/// default, so the list of conversations the owner is offered contains
-/// conversations they actually had.
-///
-/// The gateway validates this against a fixed set and silently falls
-/// back to its default on anything else, so the value here is not free
-/// text -- changing it means checking it is still one it accepts.
+
 pub const CHAT_SOURCE: &str = "desktop";
 
 async fn create_session(key: &str, source: Option<&str>) -> Result<String, String> {
@@ -1534,6 +1526,20 @@ mod prompt_tests {
         assert!(CHAT_PROTOCOL.contains("<options>"));
         assert!(CHAT_PROTOCOL.contains("</options>"));
         assert!(CHAT_PROTOCOL.contains("Two to four"));
+    }
+
+    #[test]
+    fn the_agent_is_told_what_the_screen_can_render() {
+        // The shell renders replies as markdown, so a reply written as
+        // flat text throws away structure the owner would have got for
+        // free -- most of all with data, which is unreadable as prose
+        // and readable as rows.
+        assert!(CHAT_PROTOCOL.contains("answer with a table"));
+        // And the other direction: the renderer has no tag for a link,
+        // so an address written as one arrives with the address gone.
+        // The agent has to know that before it writes one.
+        assert!(CHAT_PROTOCOL.contains("Links."));
+        assert!(CHAT_PROTOCOL.contains("Most replies need none of this"));
     }
 
     #[test]

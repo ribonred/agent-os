@@ -37,6 +37,25 @@ export async function setChatCollapsed(collapsed: boolean): Promise<void> {
   }
 }
 
+export async function getFilesCollapsed(): Promise<boolean> {
+  try {
+    const store = await getStore();
+    return (await store.get<boolean>("filesCollapsed")) ?? false;
+  } catch {
+    return false;
+  }
+}
+
+export async function setFilesCollapsed(collapsed: boolean): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set("filesCollapsed", collapsed);
+    await store.save();
+  } catch {
+    // Same reasoning -- the collapse still works for this session.
+  }
+}
+
 export const DEFAULT_CHAT_WIDTH = 460;
 export const MIN_CHAT_WIDTH = 320;
 export const MAX_CHAT_WIDTH = 800;

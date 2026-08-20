@@ -309,22 +309,52 @@ chat app skin:
 - **User messages are quiet.** Right-aligned, `--surface` pill, smaller
   type in `--text-secondary`. The user's words are context; the reply is
   the content.
-- **The reply is rendered, not dumped.** Assistant text is markdown:
-  paragraphs, lists, emphasis, inline code, and fenced code blocks with a
-  way to copy them. A list that arrives as `- one` `- two` and renders as
-  literal hyphens tells the owner the device is showing them raw machine
-  output, which is the opposite of what this product claims to be.
+- **The reply is rendered, not dumped.** Assistant text is markdown. A
+  list that arrives as `- one` `- two` and renders as literal hyphens
+  tells the owner the device is showing them raw machine output, which is
+  the opposite of what this product claims to be.
+
+  The subset, in full: paragraphs and line breaks, bold, italic,
+  strikethrough, bulleted and numbered lists, headings, blockquote,
+  inline code, fenced code blocks with a way to copy them, horizontal
+  rules, and **tables**. This list is the contract the agent is written
+  against (`brain/chat-protocol.md`) and the list the sanitizer enforces
+  (`ui/app/lib/markdown.ts`); the three move together or the device
+  promises something the screen does not do.
 
   Markdown adds structure, not chrome. The bare-text-on-canvas rule above
   is unchanged: no bubble, no avatar, no card around a reply. Headings
   are quieter than the body would suggest -- a reply is speech, not a
-  document, and a large heading in a narrow pane reads as shouting. Only
-  the subset named here is rendered; anything wider is a request to
-  revisit this section, not a component to add on the day.
+  document, and a large heading in a narrow pane reads as shouting.
+  Anything wider than the subset is a request to revisit this section,
+  not a component to add on the day.
+
+- **A table is for answering with data, not for decorating an answer.**
+  Anything the owner would otherwise have to hold in their head across
+  several sentences -- three months of totals, what is in five files,
+  this option against that one -- reads better as rows. That is the case
+  the shell renders tables for, and the agent is told to reach for one
+  there.
+
+  It is also the case where the pane's measure bites: a table wider than
+  a few short columns scrolls sideways, and a column the owner has to
+  drag to see is one they will not read. Few columns, short headers, and
+  prose for anything that is really a sentence.
 
   Anything wide -- a code block, a table -- scrolls inside its own
-  container. The pane has a measure that suits bare prose and nothing is
-  allowed to widen it.
+  container rather than widening the pane. The pane has a measure that
+  suits bare prose and nothing is allowed to widen it.
+
+- **Nothing in a reply is fetched, and nothing in a reply is clickable.**
+  Images never render and links are not a tag this surface has: the
+  device may never see a network, and a broken-image icon or a dead link
+  in the middle of an answer is worse than the text the model wrote.
+
+  This is a constraint on how the agent writes, not only on what the
+  renderer strips. A web address written as a markdown link loses the
+  address entirely and leaves the owner holding the label -- so an
+  address that matters is written out as plain text, where it survives
+  and can be read aloud, copied, or typed.
 - **Streaming is visible.** Tokens append as they arrive -- no spinner,
   no "typing..." placeholder. Before the first token the orb shifts to
   its thinking rhythm (per Motion); while tokens flow it speaks; idle
@@ -472,6 +502,19 @@ underneath and it has a file manager of its own, but reaching for it
 means leaving the assistant, and the whole product claim is that they
 never have to. Every affordance they need must exist here, and every one
 they don't need is weight they carry.
+
+- **Either half can give way to the other.** The conversation collapses
+  to its orb rail when the owner wants the files; the file view collapses
+  to a rail of its own when they want the conversation. Whichever pane is
+  left takes the whole width rather than sitting at its usual measure
+  beside an empty gap -- a reader who asked for room and got white space
+  instead has been told no politely.
+
+  Collapsing is symmetric and reversible from the rail itself, the same
+  gesture in both directions, and it is remembered across restarts: how
+  the owner arranged their screen is a decision they made once. Both
+  never collapse at once. The file rail carries a folder mark, not a
+  chevron pointing at nothing, and the orb stays on screen either way.
 
 - **Show what is actually there.** Real filenames with their extensions,
   real sizes, real dates. `price-list-2026.xlsx` is

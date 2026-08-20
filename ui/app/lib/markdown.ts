@@ -30,9 +30,18 @@ md.disable(["image"]);
 
 /// Exactly what a reply may contain. Anything else is a request to
 /// revisit DESIGN.md, not a tag to quietly add.
-const ALLOWED_TAGS = [
+///
+/// Exported so a test can hold it against what the agent is told it may
+/// write (brain/chat-protocol.md). The two drifting apart is the failure
+/// worth catching: a device that offers the owner a table it then strips
+/// on the way to the screen, or renders a mark it never uses.
+export const ALLOWED_TAGS = [
   "p", "br", "hr",
-  "strong", "em", "del",
+  // The parser emits <s> for ~~struck through~~, never <del> -- an
+  // earlier list allowed only <del>, so strikethrough was stripped back
+  // to bare text and the mark silently did nothing. Both are listed
+  // because either spelling means the same thing to a reader.
+  "strong", "em", "s", "del",
   "ul", "ol", "li",
   "h1", "h2", "h3", "h4", "h5", "h6",
   "blockquote",

@@ -97,6 +97,11 @@ const parentPath = computed(() => {
   return crumbs.length === 1 ? "" : (crumbs[crumbs.length - 2]?.path ?? "");
 });
 
+// Folding this half away is the file view's own control, so it sits with
+// the breadcrumb rather than in the conversation's row of icons: the
+// owner puts away the thing they are looking at.
+const { set: setFilesCollapsed } = useFilesPane();
+
 const isEmpty = computed(
   () => !loading.value && !error.value && entries.value.length === 0,
 );
@@ -133,6 +138,17 @@ const isEmpty = computed(
       <span v-else-if="!loading && !error" class="count">
         {{ entries.length }}
       </span>
+
+      <button
+        type="button"
+        class="fold"
+        aria-label="Hide your files"
+        title="Hide your files"
+        :aria-expanded="true"
+        @click="setFilesCollapsed(true)"
+      >
+        ›
+      </button>
     </header>
 
     <p v-if="error" class="surface-error" role="alert">
@@ -234,6 +250,28 @@ const isEmpty = computed(
   color: var(--text-secondary);
   font-size: 0.82rem;
   white-space: nowrap;
+}
+
+/* Same weight as the conversation's own controls -- this is the other
+   end of the same gesture, not a louder one. */
+.fold {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.15rem;
+  line-height: 1;
+  padding: 0.25rem 0.4rem;
+  margin-right: -0.4rem;
+  cursor: pointer;
+}
+
+.fold:hover {
+  color: var(--text-primary);
+}
+
+.fold:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .rows {
