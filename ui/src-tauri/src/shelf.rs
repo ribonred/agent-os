@@ -62,7 +62,10 @@ pub struct Listing {
 }
 
 /// The owner's home -- the one root, on the appliance and in development.
-fn root() -> Result<PathBuf, String> {
+///
+/// Shared with the views module rather than duplicated there: two copies
+/// of a containment root is how one of them ends up subtly different.
+pub(crate) fn root() -> Result<PathBuf, String> {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .filter(|p| !p.as_os_str().is_empty())
@@ -80,7 +83,11 @@ fn is_hidden(name: &str) -> bool {
 /// component scan rejects `..` and absolute paths before they are ever
 /// joined, and the canonicalised prefix check catches a symlink that
 /// resolves to somewhere outside the home.
-fn resolve(relative: &str) -> Result<PathBuf, String> {
+///
+/// Shared with the views module for the same reason as `root`: the
+/// custom protocol handler serves files straight to a webview, so it
+/// needs exactly this containment and must not grow its own version.
+pub(crate) fn resolve(relative: &str) -> Result<PathBuf, String> {
     let root = root()?;
     let candidate = Path::new(relative);
 
@@ -282,7 +289,26 @@ pub fn shelf_list(path: String) -> Result<Listing, String> {
             count: if is_dir { visible_count(&item.path()) } else { 0 },
             size: if is_dir { 0 } else { meta.len() },
             modified: modified_ms(&meta),
-            kind: if is_dir { "folder" } else { kind_for(&name) }.to_string(),
+            // A view is a folder, but not one the owner should ever walk
+            // into: inside it is markup, and this device is sold to
+            // someone who has never opened a text editor. It gets its own
+            // kind so the row opens the page instead of the directory.
+            //
+            // Only inside the views directory, because that is exactly
+            // the set the views surface can open. A view-shaped folder
+            // the owner made somewhere else stays an ordinary folder --
+            // marking a row as something the device cannot then show is
+            // worse than not marking it.
+            kind: if is_dir {
+                if path == crate::views::VIEWS_DIR && crate::views::is_view_dir(&item.path()) {
+                    "view"
+                } else {
+                    "folder"
+                }
+            } else {
+                kind_for(&name)
+            }
+            .to_string(),
             name,
         });
     }

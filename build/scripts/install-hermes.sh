@@ -237,11 +237,16 @@ in_chroot "chown -R $HERMES_USER:$HERMES_USER $HERMES_HOME"
 # reboot.
 install -D -m 600 "$REPO/brain/constitution.md" \
     "$ROOTFS$HERMES_HOME/SOUL.md"
+# The whole skill directory, not only SKILL.md: a skill is allowed to
+# bundle a non-interactive script for steps that are fragile, and copying
+# just the prose left those scripts on the build machine -- the skill
+# would ship describing a helper that was not there.
 for skill_dir in "$REPO/brain/skills"/*/; do
     [ -d "$skill_dir" ] || continue
     name="$(basename "$skill_dir")"
-    install -D -m 600 "$skill_dir/SKILL.md" \
-        "$ROOTFS$HERMES_HOME/skills/$name/SKILL.md"
+    cp -a "$skill_dir." "$ROOTFS$HERMES_HOME/skills/$name/" 2>/dev/null \
+        || { install -d -m 700 "$ROOTFS$HERMES_HOME/skills/$name"; \
+             cp -a "$skill_dir." "$ROOTFS$HERMES_HOME/skills/$name/"; }
 done
 
 # The canonical copy the every-boot unit restores from, so a rebuild of
@@ -251,8 +256,8 @@ install -D -m 644 "$REPO/brain/constitution.md" \
 for skill_dir in "$REPO/brain/skills"/*/; do
     [ -d "$skill_dir" ] || continue
     name="$(basename "$skill_dir")"
-    install -D -m 644 "$skill_dir/SKILL.md" \
-        "$ROOTFS/usr/local/share/agentic-os/skills/$name/SKILL.md"
+    install -d -m 755 "$ROOTFS/usr/local/share/agentic-os/skills/$name"
+    cp -a "$skill_dir." "$ROOTFS/usr/local/share/agentic-os/skills/$name/"
 done
 
 in_chroot "chown -R $HERMES_USER:$HERMES_USER $HERMES_HOME"

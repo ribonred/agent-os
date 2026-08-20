@@ -48,6 +48,59 @@ tokens above before inventing a new color -- if something doesn't fit,
 that's a sign the design system needs a deliberate addition, not a
 one-off hex value in a component.
 
+### Family tokens
+
+One place needs more colours than two accents can give it: the model
+picker, where the owner is scanning a list of fifty models belonging to
+seventeen different makers. Grouped under headings alone, that list is a
+wall of near-identical text, and the maker is the thing the owner is
+actually navigating by.
+
+This is the deliberate addition the rule above asks for, not a one-off:
+the palette lives here, it is a fixed scale rather than a colour per
+maker invented on the day, and it is used in exactly one place.
+
+```
+--family-1:  #E8A33D   amber
+--family-2:  #E2703A   orange
+--family-3:  #D9584B   clay
+--family-4:  #C75CA8   magenta
+--family-5:  #A87BE8   violet
+--family-6:  #6E7FE8   indigo
+--family-7:  #4FA3E8   blue
+--family-8:  #3FB8A8   teal
+--family-9:  #5FBF6A   green
+--family-10: #9CBF3F   lime
+--family-none: #8A93A8 slate -- a maker the scale has no entry for
+```
+
+Four rules keep this from becoming a second palette competing with the
+first:
+
+- **Decoration only, and never the only carrier of meaning.** A family
+  colour appears as a small mark beside a name that is already written
+  out in words. Nobody has to distinguish teal from green to use the
+  screen; the colour is there to make the scanning quicker, and removing
+  every one of them would lose speed and no information. That redundancy
+  is also what makes a colour-coded list acceptable for someone who
+  cannot tell two of these apart.
+
+- **Never on text, never on a control.** The mark is a dot and a faint
+  rule. A coloured label would compete with `--accent`, which on this
+  device means the assistant itself and must not come to mean "made by
+  Google".
+
+- **Deliberately not the semantic colours.** None of these is
+  `--success`, `--danger` or `--accent`, and the green and blue here are
+  shifted away from them on purpose. A green dot beside a model must not
+  read as "this one is working"; a red one must not read as "something is
+  wrong with this".
+
+- **A maker keeps its colour.** Assignment is fixed, not by position in a
+  list that changes when a provider adds a model. If Anthropic is violet
+  today it is violet next week, or the colour is telling the owner
+  nothing they can rely on.
+
 ### Orb-only tokens
 
 The presence orb is the one element allowed a richer range than the
@@ -575,6 +628,101 @@ they don't need is weight they carry.
 This surface introduces **no new colour tokens**. Everything above is
 `--surface`, `--surface-raised`, `--text-primary`, `--text-secondary`,
 `--accent`, `--danger`.
+
+## The canvas
+
+The right-hand pane is **what the owner is looking at**, and their files
+are only its first answer. When the device builds something to be looked
+at -- a month of takings, tomorrow's appointments, a price list to hand
+across a counter -- it appears here, and the conversation carries on
+beside it unchanged.
+
+Folders and Views are **tabs on the one pane**, not a third column. The
+device is the assistant beside the owner's work; permanently narrowing
+that work to hold a second surface costs more than it gives. Both tabs
+collapse together, because the pane collapses as one thing.
+
+- **A view is a page the device made, not a document the owner wrote.**
+  That distinction has to be legible without being announced: a view
+  says what question it answers and where its figures came from, in the
+  same quiet `--text-secondary` line the file view uses for a count. A
+  page of numbers with no stated source is the device asking to be taken
+  on faith, on the one surface where faith is least appropriate --
+  nobody proofreads a bar they can see.
+
+- **The device made it; the owner owns it.** A view is a real folder in
+  the owner's own filesystem, alongside their documents, not an entry in
+  something only this app can open. They can copy it to a memory stick,
+  send it to their accountant, or delete it, and none of that is a
+  feature the device grants them.
+
+  They must never meet its parts. In the file view a view is **one row**
+  that opens the view -- not a folder to walk into and find `index.html`
+  staring back. The owner of this device has never opened a text editor
+  and should never learn what one is for.
+
+- **Nothing in a view is fetched, and nothing in a view runs.** No
+  network, no scripts. Static markup, the device's own stylesheets, and
+  drawings computed before the page existed.
+
+  Both halves are enforced, not merely asked for, and by different
+  mechanisms because they are different holes. The frame is sandboxed,
+  which stops scripts. The page is served with a policy refusing every
+  outbound request, which the sandbox does not do -- and that is the one
+  that matters most, because a view is markup written from the owner's
+  own documents, one of which may have been written by somebody with an
+  interest in the others. An image source needs no script to carry a
+  figure off the device.
+
+  It is also why a view prints correctly and opens instantly on a device
+  that may never see a network.
+
+- **A view is light by default, and the owner can turn it dark.** This is
+  the one surface that departs from dark-first, and the reason is what a
+  view *is*: the rest of the product is an ambient presence on a counter,
+  which is what dark-first is for. A view is a document. It gets read
+  closely, and it gets printed and handed to someone — and paper is
+  white, so a view that is dark on screen and light on paper is two
+  different documents wearing one name.
+
+  Light is the default because it is the one that matches the printer and
+  the one a front desk reads under strip lighting. Dark is one control
+  away for an owner who prefers it, and the choice is remembered.
+
+  The chrome around the view does not change. The conversation, the tab
+  strip and the file view stay dark whichever way the page is set: the
+  device is still the device, and the page inside it is the thing that
+  behaves like paper.
+
+- **Views look like the device, not like whatever made them.** They link
+  two stylesheets the device ships and nothing else. A view written last
+  month picks up a change made to either of them today. Nothing here
+  invents a colour, and a view that could be mistaken for a web page
+  from somewhere else is a bug.
+
+  The first is a vendored copy of a common CSS framework, present for
+  one reason: the assistant writing a view already knows its class
+  names, so asking for two columns produces two columns rather than an
+  invention. The second is this system's, and it exists to undo the
+  first one's appearance -- it overrides that framework's own variables
+  with the tokens above, so a familiar class still behaves the way the
+  assistant expects while arriving in the device's colours. A framework
+  page that still looks like a framework page has failed at the only job
+  this layer has.
+
+- **A view is for what will not fit in a sentence.** "How many invoices
+  this month?" is answered by saying the number. Building a page for it
+  is the same failure as putting three buttons under a question that
+  needed none: it dresses an answer up as an event. The restraint is the
+  design, not a limitation of it.
+
+- **Printing is a first-class act.** These devices sit on counters and
+  front desks, where things get printed and handed to people. A view
+  that prints as a mess is a view that failed at the last step.
+
+- **The tab appears when there is something in it.** A device on its
+  first day has made nothing, and shipping every unit with an empty tab
+  advertises a feature instead of offering one.
 
 ## Icons
 

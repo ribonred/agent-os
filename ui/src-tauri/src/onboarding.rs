@@ -495,23 +495,21 @@ pub fn language_display_name(code: &str) -> Option<&'static str> {
     }
 }
 
-/// Hard language pin written into USER.md. Hermes injects USER.md into
-/// the durable system prompt; a soft per-turn overlay alone is not enough
-/// once tool output is in English and models start code-switching.
 pub fn language_pin_block(language_code: Option<&str>) -> Option<String> {
     let code = language_code.map(str::trim).filter(|value| !value.is_empty())?;
     let name = language_display_name(code).unwrap_or(code);
     Some(format!(
         "## Language (required)\n\n\
          - Preferred language: {name} (code: {code})\n\
-         - Always reply to the owner in {name}.\n\
-         - Do not switch to English, Spanish, or any other language unless \
-the owner clearly writes in that language in their own message.\n\
-         - Tool output, file contents, CLI logs, error strings, and URLs do \
-not count as the owner switching languages — translate or summarize them \
-in {name}.\n\
-         - Thinking-aloud, progress updates, and status lines must also be \
-in {name}."
+         - Always write to the owner in {name}.\n\
+         - Every reply is in {name}: answers, questions, short \
+confirmations, progress notes, apologies, and anything said while \
+working.\n\
+         - Files, command output, error text and web addresses often \
+arrive in another language. Read them as they are and write the reply in \
+{name}.\n\
+         - When the owner writes in a different language, match the \
+language they used."
     ))
 }
 
@@ -899,7 +897,12 @@ mod tests {
         assert!(profile.contains("Role and context: not yet known"));
         assert!(profile.contains("## Language (required)"));
         assert!(profile.contains("Bahasa Indonesia"));
-        assert!(profile.contains("Tool output"));
+        // The rule that output arriving in another language is still
+        // answered in the owner's -- the case that made a per-turn
+        // overlay alone insufficient. Checked by meaning rather than by
+        // one phrase, so the wording can be improved without this
+        // failing for the wrong reason.
+        assert!(profile.contains("command output"));
     }
 
     #[test]
@@ -969,4 +972,36 @@ mod tests {
         assert!(overlay.contains("EXACTLY the following text"));
         assert!(overlay.contains(&en));
     }
+    /// A device set to Bahasa Indonesia once answered an entire
+    /// conversation in Spanish, starting from its very first reply. The
+    /// only occurrence of the word "Spanish" anywhere in that context
+    /// was the instruction forbidding it. Naming a language teaches it;
+    /// the pin may name the owner's and no other.
+    #[test]
+    fn the_language_pin_names_only_the_owners_language() {
+        let pin = language_pin_block(Some("id")).expect("a pin");
+        assert!(pin.contains("Bahasa Indonesia"));
+
+        for other in [
+            "Spanish", "English", "French", "German", "Mandarin", "Japanese",
+            "Korean", "Vietnamese", "Thai", "Malay", "Hindi", "Filipino",
+        ] {
+            assert!(
+                !pin.contains(other),
+                "the pin names {other}, which is how a model learns to speak it"
+            );
+        }
+
+        // And nothing phrased as a prohibition. "Do not do X" hands the
+        // model X and asks it to hold a negation; a small model will not
+        // reliably hold one. Every line here says what to do instead.
+        let lowered = pin.to_lowercase();
+        for shape in ["do not", "don't", "never ", "avoid ", "must not"] {
+            assert!(
+                !lowered.contains(shape),
+                "the pin says {shape:?} -- write the rule as what to do"
+            );
+        }
+    }
+
 }

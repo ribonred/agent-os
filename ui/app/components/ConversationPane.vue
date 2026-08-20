@@ -48,6 +48,13 @@ const {
 // The list of earlier conversations covers this pane while it is open.
 const history = ref(false);
 
+// So does the model picker. Which model the device thinks with is worth
+// being able to see and change without leaving the conversation -- it is
+// the one setting that changes every answer that follows.
+const picking = ref(false);
+const { current: currentModel, loadCurrent: loadCurrentModel } = useModels();
+onMounted(loadCurrentModel);
+
 async function onOpenSession(id: string) {
   await openSession(id);
   history.value = false;
@@ -96,6 +103,26 @@ function onResizeStart(event: PointerEvent | MouseEvent) {
   event.preventDefault();
   isResizing.value = true;
 
+  // The pane the owner drags towards can contain a view, and a view is
+  // a frame with its own document. Without these two the pointer
+  // crosses into that frame a few pixels into the gesture and the drag
+  // simply stops receiving events -- which feels like the divider
+  // stuttering and then sticking, because that is exactly what happens.
+  //
+  // Capture keeps every later pointer event addressed here whatever it
+  // is over; the body class stops frames swallowing them in the first
+  // place. Either alone mostly works, which is worse than neither,
+  // because it fails only sometimes.
+  const handle = event.currentTarget;
+  if (handle instanceof Element && "pointerId" in event) {
+    try {
+      handle.setPointerCapture(event.pointerId);
+    } catch {
+      // An engine that will not capture still has the class below.
+    }
+  }
+  document.body.classList.add("resizing-panes");
+
   const prevCursor = document.body.style.cursor;
   const prevUserSelect = document.body.style.userSelect;
   document.body.style.cursor = "col-resize";
@@ -114,6 +141,7 @@ function onResizeStart(event: PointerEvent | MouseEvent) {
 
   async function onPointerUp() {
     isResizing.value = false;
+    document.body.classList.remove("resizing-panes");
     document.body.style.cursor = prevCursor;
     document.body.style.userSelect = prevUserSelect;
     window.removeEventListener("pointermove", onPointerMove);
@@ -176,6 +204,22 @@ const options = computed(() =>
     : parseReply(lastAssistant.value.content).options,
 );
 
+// When the device has built something to look at, the reply offers the
+// way to it. Only once the turn is finished, for the same reason the
+// answers are: a control that appears mid-sentence invites a tap before
+// there is anything behind it.
+const { views, show: showView } = useViews();
+
+const offeredView = computed(() => {
+  if (busy.value || !lastAssistant.value) return null;
+  const name = parseReply(lastAssistant.value.content).view;
+  if (!name) return null;
+  // Only offered if it is really there. The device saying it made
+  // something, and then nothing opening, is worse than it saying
+  // nothing at all.
+  return views.value.find((view) => view.name === name) ?? null;
+});
+
 /// Mid-stream the trailer is hidden as it types itself; once the turn is
 /// done it is gone entirely and its contents are chips instead.
 function bodyText(content: string) {
@@ -195,6 +239,7 @@ watch(entries, autoscroll, { deep: true });
 // after the last entry changed -- without this they render below the
 // fold and the owner never sees they had a choice.
 watch(options, autoscroll);
+watch(offeredView, autoscroll);
 
 async function onSubmit() {
   await send();
@@ -305,10 +350,32 @@ async function onPick(option: string) {
           </p>
         </template>
 
+        <button
+          v-if="offeredView"
+          type="button"
+          class="show-view"
+          @click="showView(offeredView.name)"
+        >
+          Show me {{ offeredView.title.toLocaleLowerCase() }}
+        </button>
+
         <OptionChips :options="options" :disabled="busy" @pick="onPick" />
       </section>
 
       <ContextChip />
+
+      <!-- Beside the composer rather than inside it: the input is
+           deliberately one bare control. Quiet on purpose -- the owner of
+           this device may never need to know what a model is. -->
+      <button
+        v-if="currentModel"
+        type="button"
+        class="model"
+        :title="`Thinking with ${currentModel.id}`"
+        @click="picking = true"
+      >
+        {{ currentModel.name }}
+      </button>
 
       <form @submit.prevent="onSubmit">
         <ChatInput
@@ -325,6 +392,8 @@ async function onPick(option: string) {
       </form>
 
       
+      <ModelPicker v-if="picking" @close="picking = false" />
+
       <HistoryDrawer
         v-if="history"
         :current="sessionId"
@@ -502,6 +571,56 @@ header {
   font-size: 1.05rem;
   font-weight: 300;
   letter-spacing: 0.02em;
+}
+
+/* What the device is thinking with. A label the owner can tap, not a
+   control shouting for attention: on a device sold as "it just works",
+   the model is a detail most owners never have to meet. */
+.model {
+  align-self: flex-start;
+  margin: 0 1.5rem;
+  padding: 0.1rem 0;
+  background: none;
+  border: 0;
+  color: var(--text-secondary);
+  font-family: var(--font-family);
+  font-size: 0.76rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.model:hover {
+  color: var(--text-primary);
+}
+
+.model:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* The way to what the device just built. One control, in the flow, in
+   the accent -- this is the device offering something rather than asking
+   a question, so it does not look like an answer to pick. */
+.show-view {
+  align-self: flex-start;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 999px;
+  padding: 0.45rem 0.95rem;
+  font-family: var(--font-family);
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.show-view:hover {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.show-view:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* The owner's words are context: quiet, right-aligned pill */

@@ -15,6 +15,22 @@
   --success: #4ade80;
   --danger: #ff6b6b;
 
+  /* Family tokens -- the model picker only, and only ever as a small
+     mark beside a name already written in words (see DESIGN.md). None of
+     these is --success, --danger or --accent: a green dot beside a model
+     must not read as "this one is working". */
+  --family-1: #e8a33d;
+  --family-2: #e2703a;
+  --family-3: #d9584b;
+  --family-4: #c75ca8;
+  --family-5: #a87be8;
+  --family-6: #6e7fe8;
+  --family-7: #4fa3e8;
+  --family-8: #3fb8a8;
+  --family-9: #5fbf6a;
+  --family-10: #9cbf3f;
+  --family-none: #8a93a8;
+
   /* Orb-only tokens -- never used on any other element (see DESIGN.md) */
   --orb-cyan: #3ddcff;
   --orb-violet: #7a5cfa;

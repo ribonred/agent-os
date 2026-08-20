@@ -63,6 +63,12 @@ watch(busy, (isBusy, was) => {
 });
 
 function open(entry: Entry) {
+  // A view is a folder the owner must never walk into: what is inside it
+  // is markup. The row opens the page instead.
+  if (entry.kind === "view") {
+    showView(entry.name);
+    return;
+  }
   // Only folders go anywhere for now. Opening a file is what the
   // conversation is for, and that lands with the context chip.
   if (entry.isDir) navigateTo(`/files/${entry.path}`);
@@ -101,6 +107,10 @@ const parentPath = computed(() => {
 // the breadcrumb rather than in the conversation's row of icons: the
 // owner puts away the thing they are looking at.
 const { set: setFilesCollapsed } = useFilesPane();
+
+// Opening a view from here shows the page, not the folder full of markup
+// that produced it.
+const { show: showView } = useViews();
 
 const isEmpty = computed(
   () => !loading.value && !error.value && entries.value.length === 0,
@@ -190,7 +200,8 @@ const isEmpty = computed(
 .files {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  /* Its container, not the viewport -- the tab strip is above it. */
+  min-height: 100%;
 }
 
 .bar {

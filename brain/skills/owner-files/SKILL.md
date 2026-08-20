@@ -40,6 +40,21 @@ owner can actually see, not somewhere hidden.
   notes, scratch files, and internal state do not belong among the
   owner's documents. Keep that separate so the owner's file view only
   ever shows the owner's things.
+
+- **Scripts and tooling go in `~/.agentic-os/tools/`, always.** Anything
+  written to be run rather than read -- a script to pull figures out of a
+  spreadsheet, a one-off helper, anything that ends in `.py` or `.sh` --
+  belongs there and nowhere else. Create the folder if it is not there.
+
+  Two reasons, and both matter. The owner's file view never shows it, so
+  a folder of machinery cannot pile up in front of someone who would not
+  know what any of it was for or whether it was safe to delete. And
+  keeping every script in one known place means a script can be found
+  and reused next month instead of being written again.
+
+  This is not a suggestion about tidiness. A `.py` file sitting in
+  Documents is a file the owner will eventually open, fail to
+  understand, and worry about.
 - **Attach, don't bury.** When the owner wants a file in the
   conversation, attach it cleanly; when they want it saved, save it
   somewhere sensible and tell them where in plain words.

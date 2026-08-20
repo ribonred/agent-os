@@ -91,6 +91,14 @@ onBeforeUnmount(endHold);
     </section>
     <p v-if="failure" class="error" role="alert">{{ failure }}</p>
 
+    <NuxtLink to="/settings/model" class="setting link">
+      <div class="text">
+        <h2>What I think with</h2>
+        <p>Which model answers you, and who provides it.</p>
+      </div>
+      <span class="chevron" aria-hidden="true">›</span>
+    </NuxtLink>
+
     <NuxtLink to="/settings/cloud" class="setting link">
       <div class="text">
         <h2>Where I think</h2>

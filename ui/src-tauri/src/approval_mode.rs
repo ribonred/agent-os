@@ -4,14 +4,12 @@
 //! The setting lives in the agent runtime's own config file, not in the
 //! shell's store, because the runtime is what enforces it -- a copy here
 //! would be a second answer to the same question and the two would drift.
-//! The file is machine-generated at build time with a known shape and
-//! carries comments explaining the posture, so this edits the one line it
-//! owns rather than parsing and re-serialising the document.
 //!
-//! The gateway keys its config cache on the file's modification time and
-//! size, so a write here is picked up on the next turn. Nothing restarts.
+//! Finding and rewriting the line lives in `hermes_config`, shared with
+//! the model setting, which edits `model.default` in the same file the
+//! same way.
 
-use std::path::PathBuf;
+use crate::hermes_config::{config_path, find_key, with_key};
 
 /// The two values this device offers. "smart" also exists upstream and
 /// is deliberately not offered: it runs an auxiliary model judgement per
@@ -21,72 +19,16 @@ use std::path::PathBuf;
 const ASKING: &str = "manual";
 const NOT_ASKING: &str = "off";
 
-/// The agent runtime's config, resolved the same way its credentials
-/// are: an explicit override first, then the device layout, then a
-/// developer's own install.
-fn config_path() -> Result<PathBuf, String> {
-    if let Some(explicit) = std::env::var_os("AGENTIC_OS_HERMES_CONFIG") {
-        return Ok(PathBuf::from(explicit));
-    }
-    let home = std::env::var_os("HOME").ok_or_else(|| "no home directory".to_string())?;
-    Ok(PathBuf::from(home).join(".hermes/config.yaml"))
-}
+/// This module's one key, named once.
+const BLOCK: &str = "approvals";
+const KEY: &str = "mode";
 
-/// Finds the `mode:` line inside the `approvals:` block.
-///
-/// Returns the line's index and its current value. A top-level key is any
-/// line starting in column zero, so the block ends at the next one --
-/// which is how a `mode:` belonging to some other section is never
-/// mistaken for this one.
 fn find_mode_line(config: &str) -> Option<(usize, String)> {
-    let mut in_approvals = false;
-    for (index, line) in config.lines().enumerate() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        let is_top_level = !line.starts_with([' ', '\t']);
-        if is_top_level {
-            in_approvals = trimmed.starts_with("approvals:");
-            continue;
-        }
-        if in_approvals {
-            if let Some(value) = trimmed.strip_prefix("mode:") {
-                let value = value
-                    .split('#')
-                    .next()
-                    .unwrap_or("")
-                    .trim()
-                    .trim_matches(['"', '\''])
-                    .to_string();
-                return Some((index, value));
-            }
-        }
-    }
-    None
+    find_key(config, BLOCK, KEY)
 }
 
-/// The mode with one line rewritten, preserving that line's indentation
-/// and everything else in the file byte for byte.
 fn with_mode(config: &str, mode: &str) -> Result<String, String> {
-    let (target, _) = find_mode_line(config).ok_or_else(|| {
-        "the agent's configuration has no approvals mode to change".to_string()
-    })?;
-
-    let mut lines: Vec<String> = config.lines().map(str::to_string).collect();
-    let indent: String = lines[target]
-        .chars()
-        .take_while(|c| c.is_whitespace())
-        .collect();
-    // Quoted on purpose: YAML 1.1 reads a bare `off` as the boolean
-    // false, and the runtime then has to guess what was meant.
-    lines[target] = format!("{indent}mode: \"{mode}\"");
-
-    let mut rewritten = lines.join("\n");
-    if config.ends_with('\n') {
-        rewritten.push('\n');
-    }
-    Ok(rewritten)
+    with_key(config, BLOCK, KEY, mode)
 }
 
 /// Whether the owner has asked to be consulted before risky commands.

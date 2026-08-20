@@ -73,6 +73,7 @@ gui: ## Run the Tauri app (expects the Hermes gateway; see `make dev`)
 	  DBUS_SESSION_BUS_ADDRESS="$$DBUS_SESSION_BUS_ADDRESS" \
 	  NUXT_TELEMETRY_DISABLED=1 \
 	  AGENTIC_OS_HERMES_URL=$(HERMES_URL) \
+	  AGENTIC_OS_SHARE=$(REPO)/build/rootfs-overlay/usr/local/share/agentic-os \
 	  bun run tauri dev
 
 dev-reset: ## Clear setup so the next launch opens on the first-boot screens

@@ -21,7 +21,7 @@ pub(crate) fn base_url() -> String {
 }
 
 /// The model every session is pinned to, mirroring the gateway's own
-/// configured default.
+//// Which model to stamp on a session and on every run.
 ///
 /// Sessions MUST be created with an explicit model. A session opened
 /// without one is stamped with the API server's display label for the
@@ -30,21 +30,15 @@ pub(crate) fn base_url() -> String {
 /// and the provider rejects every turn ("hermes-agent is not a valid
 /// model ID") while the configured model looks perfectly correct.
 ///
-/// Reading it back at runtime is not an option: the server advertises
-/// only that same label on /v1/models, so there is nothing real to
-/// discover. The value below therefore repeats the gateway's own
-/// model.default and must be kept in step with it -- changing the model
-/// means changing both.
-///
-/// The env override is the seam that removes that duplication later:
-/// provisioning can export this variable from the same source that
-/// configures the gateway, leaving the literal here as a fallback
-/// rather than a second definition.
-fn model_id() -> String {
-    std::env::var("AGENTIC_OS_HERMES_MODEL")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "deepseek/deepseek-v4-flash-0731".to_string())
+/// The value comes from the agent runtime's own `config.yaml`, which is
+/// the only place a model is named. This used to be a literal here with
+/// a comment saying it had to be kept in step with that file; it was
+/// not, and for weeks every session ran on the shell's copy while the
+/// runtime's default went unused. Nothing reported it, because a second
+/// copy cannot notice it disagrees. There is no fallback for the same
+/// reason -- a device that cannot say what it thinks with should say so.
+fn model_id() -> Result<String, String> {
+    crate::model::configured_model()
 }
 
 /// Scopes the agent's long-term memory independently of transcript
@@ -161,8 +155,12 @@ fn compose_overlay(
     if let Some(lang) = language.and_then(language_name) {
         // Hard pin: tool/log English is not a language switch. Same rule
         // is written into USER.md so it survives in Hermes' durable prompt.
+        //
+        // Only the owner's language is named. Listing languages to avoid
+        // put one of them into the model's mouth on a real device -- see
+        // the note on `onboarding::language_pin_block`.
         parts.push(format!(
-            "Language (required): reply only in {lang}. Do not switch to English, Spanish, or any other language unless the owner clearly writes in that language in their own message. Tool output, file contents, CLI logs, and error strings are not a language switch - translate or summarize them in {lang}."
+            "Language (required): reply only in {lang}. Every reply is in {lang}, including short confirmations, questions, progress notes and apologies. Tool output, file contents, CLI logs, and error strings are not a language switch - read them as they are and answer in {lang}. Switch only if the owner themselves writes to you in a different language."
         ));
     }
     (!parts.is_empty()).then(|| parts.join("\n\n"))
@@ -188,7 +186,22 @@ fn overlay_from_store(app: &tauri::AppHandle) -> Option<String> {
 /// None -- the convention applies on a device that has chosen nothing.
 fn chat_overlay(app: &tauri::AppHandle) -> String {
     let setup = overlay_from_store(app).unwrap_or_default();
-    [setup, CHAT_PROTOCOL.trim().to_string()]
+    // What the device has already built for this owner. Sent every turn
+    // rather than left for the agent to go and look: it costs no tool
+    // call and cannot be stale. Without it the agent has no reason to
+    // suspect there is anything to check, so it builds a second page
+    // about a subject it already has one for -- and the owner
+    // accumulates near-duplicates, none of which is obviously current.
+    let views = crate::views::existing_names()
+        .map(|names| {
+            format!(
+                "Pages you have already built for the owner, by name: {names}. \
+                 If they ask about one of these subjects again, update that \
+                 page instead of building another."
+            )
+        })
+        .unwrap_or_default();
+    [setup, views, CHAT_PROTOCOL.trim().to_string()]
         .into_iter()
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
@@ -366,7 +379,7 @@ async fn post_json(
 pub const CHAT_SOURCE: &str = "desktop";
 
 async fn create_session(key: &str, source: Option<&str>) -> Result<String, String> {
-    let mut payload = serde_json::json!({ "model": model_id() });
+    let mut payload = serde_json::json!({ "model": model_id()? });
     if let Some(source) = source {
         payload["source"] = serde_json::Value::String(source.to_string());
     }
@@ -408,7 +421,7 @@ async fn start_run(
     let mut payload = serde_json::json!({
         "input": input,
         "session_id": session_id,
-        "model": model_id(),
+        "model": model_id()?,
     });
     if let Some(instructions) = instructions {
         payload["instructions"] = serde_json::Value::String(instructions.to_string());
@@ -1540,6 +1553,18 @@ mod prompt_tests {
         // The agent has to know that before it writes one.
         assert!(CHAT_PROTOCOL.contains("Links."));
         assert!(CHAT_PROTOCOL.contains("Most replies need none of this"));
+    }
+
+    #[test]
+    fn the_way_to_a_built_page_is_baked_in() {
+        // The shell parses exactly this spelling out of a reply and
+        // turns it into the owner's way to the page. A doc that drifts
+        // to some other spelling produces a page nothing points at.
+        assert!(CHAT_PROTOCOL.contains("<view>"));
+        assert!(CHAT_PROTOCOL.contains("</view>"));
+        // And the restraint: a control that opens nothing teaches the
+        // owner the device is unreliable.
+        assert!(CHAT_PROTOCOL.contains("Only when there really is a page"));
     }
 
     #[test]

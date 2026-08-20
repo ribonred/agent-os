@@ -90,6 +90,13 @@ fn default_pill_position(window: &WebviewWindow) -> Option<LogicalPosition<f64>>
     ))
 }
 
+const MIN_FULL_WIDTH: f64 = 640.0;
+const MIN_FULL_HEIGHT: f64 = 480.0;
+
+fn is_plausible_full_size(size: &LogicalSize<f64>) -> bool {
+    size.width >= MIN_FULL_WIDTH && size.height >= MIN_FULL_HEIGHT
+}
+
 /// Remembers the full window before it becomes a pill.
 ///
 /// Without this there is nothing to go back to: the pill sets a 420x76
@@ -108,8 +115,18 @@ fn remember_full_geometry(app: &tauri::AppHandle, window: &WebviewWindow) {
         let scale = window.scale_factor().unwrap_or(1.0);
         if let Ok(size) = window.outer_size() {
             let size = size.to_logical::<f64>(scale);
-            store.set(FULL_W, size.width);
-            store.set(FULL_H, size.height);
+            if is_plausible_full_size(&size) {
+                store.set(FULL_W, size.width);
+                store.set(FULL_H, size.height);
+            } else {
+                // The window was already pill-sized when this ran, so
+                // there is no full geometry worth keeping. Forget it and
+                // fill the screen next time rather than recording a size
+                // the owner never chose.
+                store.delete(FULL_W);
+                store.delete(FULL_H);
+                store.set(FULL_MAXIMIZED, true);
+            }
         }
         if let Ok(position) = window.outer_position() {
             let position: LogicalPosition<f64> =
@@ -138,7 +155,12 @@ fn stored_full_geometry(
         .get(FULL_W)
         .and_then(|w| w.as_f64())
         .zip(store.get(FULL_H).and_then(|h| h.as_f64()))
-        .map(|(w, h)| LogicalSize::new(w, h));
+        .map(|(w, h)| LogicalSize::new(w, h))
+        // A store written before this was guarded can still hold the
+        // pill's geometry. Dropping it here means the window fills the
+        // screen once and records something sane, rather than the owner
+        // resizing by hand on every start forever.
+        .filter(is_plausible_full_size);
     let position = store
         .get(FULL_X)
         .and_then(|x| x.as_f64())
@@ -441,6 +463,28 @@ mod tests {
         assert_eq!(Mode::parse(""), Mode::Full);
         assert_eq!(Mode::parse("kiosk"), Mode::Full);
         assert_eq!(Mode::parse("MINIMIZED"), Mode::Full);
+    }
+
+    /// A real device reached a state where the stored "full" size was
+    /// the pill's own 420x76, so every start opened a window the owner
+    /// had to expand by hand -- and each start recorded the bad size
+    /// again. Both directions are guarded, and both are asserted.
+    #[test]
+    fn the_pills_geometry_is_never_mistaken_for_the_full_windows() {
+        assert!(!is_plausible_full_size(&LogicalSize::new(
+            PILL_WIDTH,
+            PILL_HEIGHT
+        )));
+        // The shape that was actually found on disk.
+        assert!(!is_plausible_full_size(&LogicalSize::new(420.0, 76.0)));
+        // Narrow but real windows are still the owner's business.
+        assert!(is_plausible_full_size(&LogicalSize::new(1024.0, 768.0)));
+        assert!(is_plausible_full_size(&LogicalSize::new(
+            MIN_FULL_WIDTH,
+            MIN_FULL_HEIGHT
+        )));
+        // A window wide enough but pill-height is still not a window.
+        assert!(!is_plausible_full_size(&LogicalSize::new(1600.0, 76.0)));
     }
 
     #[test]

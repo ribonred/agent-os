@@ -77,3 +77,50 @@ describe("streamingText", () => {
     expect(streamingText("The total is < 40")).toBe("The total is < 40");
   });
 });
+
+describe("the view a reply points at", () => {
+  it("takes the name out of the reply and offers it", () => {
+    const parsed = parseReply("I've put June's takings on screen.\n<view>june-takings</view>");
+    expect(parsed.view).toBe("june-takings");
+    // The owner must never see the markup that carried it.
+    expect(parsed.text).toBe("I've put June's takings on screen.");
+  });
+
+  it("carries options and a view in the same reply", () => {
+    const parsed = parseReply(
+      "Here it is. Want last month too?\n<view>june-takings</view>\n<options>Yes|No</options>",
+    );
+    expect(parsed.view).toBe("june-takings");
+    expect(parsed.options).toEqual(["Yes", "No"]);
+    expect(parsed.text).toBe("Here it is. Want last month too?");
+  });
+
+  it("refuses a name the command could never have made", () => {
+    // A control that opens nothing is worse than no control: the owner
+    // taps it, nothing happens, and they learn the device is unreliable.
+    for (const bad of ["../etc/passwd", "June Takings", "", "a/b", "UPPER"]) {
+      expect(parseReply(`text\n<view>${bad}</view>`).view).toBeNull();
+    }
+  });
+
+  it("still strips a trailer whose name was unusable", () => {
+    const parsed = parseReply("Done.\n<view>Not A Slug</view>");
+    expect(parsed.view).toBeNull();
+    expect(parsed.text).toBe("Done.");
+  });
+
+  it("leaves an example inside a fence alone", () => {
+    const reply = "Write it like this:\n\n```\n<view>june-takings</view>\n```";
+    const parsed = parseReply(reply);
+    expect(parsed.view).toBeNull();
+    expect(parsed.text).toContain("<view>june-takings</view>");
+  });
+
+  it("never types half a trailer onto the screen mid-stream", () => {
+    expect(streamingText("On screen now.\n<vi")).toBe("On screen now.");
+    expect(streamingText("On screen now.\n<view>june-tak")).toBe("On screen now.");
+    expect(streamingText("On screen now.\n<view>june-takings</view>")).toBe(
+      "On screen now.",
+    );
+  });
+});

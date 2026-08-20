@@ -233,6 +233,26 @@ BROWSER_SKIP="${BROWSER_SKIP:-0}" \
     "$BUILD_DIR/scripts/install-desktop.sh" "$ROOTFS" "$DEVICE_USER" "$UI_BUNDLE" "$REPO"
 
 # ---------------------------------------------------------------------------
+log "View tooling"
+# ---------------------------------------------------------------------------
+# The assistant builds pages for the owner to look at, and it builds them
+# through this command rather than by hand -- the shell recognises one
+# folder shape, and getting it slightly wrong fails silently. The
+# stylesheet is installed once here rather than copied into each view, so
+# a change to the design reaches pages written months earlier.
+install -D -m 755 "$BUILD_DIR/rootfs-overlay/usr/local/bin/agentic-view" \
+    "$ROOTFS/usr/local/bin/agentic-view"
+install -D -m 644 "$BUILD_DIR/rootfs-overlay/usr/local/share/agentic-os/view-assets/bootstrap.css" \
+    "$ROOTFS/usr/local/share/agentic-os/view-assets/bootstrap.css"
+# Vendored, so its licence ships with it.
+install -D -m 644 "$BUILD_DIR/rootfs-overlay/usr/local/share/agentic-os/view-assets/bootstrap.LICENSE" \
+    "$ROOTFS/usr/local/share/agentic-os/view-assets/bootstrap.LICENSE"
+install -D -m 644 "$BUILD_DIR/rootfs-overlay/usr/local/share/agentic-os/view-assets/view.css" \
+    "$ROOTFS/usr/local/share/agentic-os/view-assets/view.css"
+install -D -m 644 "$BUILD_DIR/rootfs-overlay/usr/local/share/agentic-os/view-template/index.html" \
+    "$ROOTFS/usr/local/share/agentic-os/view-template/index.html"
+
+# ---------------------------------------------------------------------------
 log "First-boot unit"
 # ---------------------------------------------------------------------------
 install -D -m 644 "$BUILD_DIR/rootfs-overlay/etc/systemd/system/agentic-firstboot.service" \

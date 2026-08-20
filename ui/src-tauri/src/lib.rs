@@ -2,9 +2,12 @@ mod agent;
 mod approval_mode;
 mod cloud_key;
 mod dev;
+mod hermes_config;
+mod model;
 mod onboarding;
 mod sessions;
 mod shelf;
+mod views;
 mod window_mode;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -27,6 +30,12 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        // Views are served to a sandboxed frame over their own scheme
+        // rather than read into the shell's document as text. The page
+        // is model-authored, and this keeps it in an opaque origin with
+        // no path back to the command bridge. On Linux the webview
+        // addresses this as `view://localhost/<path>`.
+        .register_uri_scheme_protocol("view", |_ctx, request| views::serve(&request))
         .setup(|app| {
             #[cfg(target_os = "linux")]
             {
@@ -102,7 +111,11 @@ pub fn run() {
             sessions::sessions_keep,
             sessions::sessions_delete,
             dev::dev_reset_setup,
-            shelf::shelf_list
+            model::model_current,
+            model::model_options,
+            model::model_set,
+            shelf::shelf_list,
+            views::views_list
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

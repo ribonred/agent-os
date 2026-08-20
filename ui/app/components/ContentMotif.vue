@@ -7,6 +7,7 @@
 // every extra symbol is one more thing to decode.
 import {
   Folder,
+  LayoutDashboard,
   FileText,
   FileSpreadsheet,
   FileImage,
@@ -19,11 +20,12 @@ import {
 import type { EntryKind } from "~/composables/useShelf";
 
 const { kind = "file" } = defineProps<{ kind?: EntryKind }>();
-
 const icon = computed(() => {
   switch (kind) {
     case "folder":
       return Folder;
+    case "view":
+      return LayoutDashboard;
     case "table":
       return FileSpreadsheet;
     case "image":
@@ -48,7 +50,10 @@ const icon = computed(() => {
   <!-- Wrapped rather than styling the icon component directly: the class
        would land on the child's root SVG, where scoped styles don't
        reach it and the size prop alone loses to flex stretching. -->
-  <span :class="['motif', kind === 'folder' ? 'is-folder' : 'is-file']" aria-hidden="true">
+  <span
+    :class="['motif', kind === 'folder' || kind === 'view' ? 'is-folder' : 'is-file']"
+    aria-hidden="true"
+  >
     <component :is="icon" :size="20" :stroke-width="1.75" />
   </span>
 </template>
@@ -69,8 +74,9 @@ const icon = computed(() => {
   height: 20px;
 }
 
-/* A folder is the thing you navigate by, so it reads a step brighter
-   than the files sitting beside it. */
+/* A folder -- and a view, which is one the device made -- is the thing
+   you navigate by, so it reads a step brighter than the files sitting
+   beside it. */
 .motif.is-folder {
   color: var(--text-primary);
   opacity: 0.8;

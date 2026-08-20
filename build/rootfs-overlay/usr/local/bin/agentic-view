@@ -1,0 +1,271 @@
+#!/usr/bin/env python3
+"""Build the pages the device shows its owner.
+
+The assistant does not hand-write a view folder. The shell recognises one
+specific shape -- a directory holding `index.html` and `view.json` -- and
+every way of getting that shape slightly wrong fails silently: the file
+is written, the assistant reports success, and the owner sees nothing.
+This makes the shape a command instead of an instruction.
+
+`chart` exists for a sharper reason. A model asked to hand-write SVG will
+interpolate bar heights, because drawing is not reading. Here the model
+supplies the numbers and this supplies the geometry, so a bar is the
+height its value earned.
+
+Standard library only, deliberately: this runs on a device that may never
+see a network and must not depend on a virtualenv being intact.
+"""
+
+import argparse
+import json
+import os
+import re
+import shutil
+import sys
+from pathlib import Path
+
+SHARE = Path(os.environ.get("AGENTIC_OS_SHARE", "/usr/local/share/agentic-os"))
+TEMPLATE = SHARE / "view-template"
+
+INDEX = "index.html"
+MANIFEST = "view.json"
+
+# Lowercase words joined by dashes. Not cosmetic: this becomes a
+# directory name and part of a URL the shell serves, so anything that
+# could be a path, an escape or a surprise is refused rather than
+# cleaned up quietly.
+SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+def views_root() -> Path:
+    home = Path(os.environ.get("HOME", "")).expanduser()
+    if not home or str(home) == ".":
+        die("I can't find your home folder.")
+    return home / "Views"
+
+
+def die(message: str, code: int = 1):
+    print(message, file=sys.stderr)
+    raise SystemExit(code)
+
+
+def view_dir(slug: str) -> Path:
+    if not SLUG.match(slug):
+        die(
+            f"'{slug}' isn't a usable name. Use lowercase words joined by "
+            "dashes, like june-takings."
+        )
+    return views_root() / slug
+
+
+# --------------------------------------------------------------------------
+# new
+# --------------------------------------------------------------------------
+
+
+def cmd_new(args):
+    target = view_dir(args.slug)
+
+    # The refusal is the point of this command. Without it a second ask
+    # about the same subject becomes sales-2, then sales-3, and the
+    # owner ends up with a folder full of near-duplicates none of which
+    # is obviously the current one.
+    if target.exists():
+        die(
+            f"'{args.slug}' already exists -- edit it instead of making "
+            f"another one.\n{target}",
+            code=2,
+        )
+
+    if not (TEMPLATE / INDEX).is_file():
+        die(f"the view template is missing at {TEMPLATE}")
+
+    target.mkdir(parents=True)
+    shutil.copytree(TEMPLATE, target, dirs_exist_ok=True)
+
+    page = (target / INDEX).read_text()
+    page = page.replace("{{title}}", escape(args.title))
+    (target / INDEX).write_text(page)
+
+    manifest = {"title": args.title, "asked": args.asked, "from": args.source or []}
+    write_manifest(target, manifest)
+
+    print(target)
+    print(f"Fill in {target / INDEX}. Leave the stylesheet link alone.")
+
+
+def escape(text: str) -> str:
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def write_manifest(target: Path, data: dict):
+    (target / MANIFEST).write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+
+
+# --------------------------------------------------------------------------
+# list
+# --------------------------------------------------------------------------
+
+
+def cmd_list(_args):
+    root = views_root()
+    if not root.is_dir():
+        return
+
+    for child in sorted(root.iterdir()):
+        if not (child / INDEX).is_file() or child.name.startswith("."):
+            continue
+        title = child.name
+        try:
+            title = json.loads((child / MANIFEST).read_text()).get("title") or title
+        except (OSError, ValueError):
+            # A view whose label is unreadable is still a view. Listing
+            # it under its folder name beats pretending it isn't there.
+            pass
+        print(f"{child.name}\t{title}")
+
+
+# --------------------------------------------------------------------------
+# chart
+# --------------------------------------------------------------------------
+
+WIDTH, HEIGHT = 640, 300
+PAD_X, PAD_TOP, PAD_BOTTOM = 8, 28, 44
+
+
+def read_series(path: Path):
+    try:
+        raw = json.loads(path.read_text())
+    except OSError:
+        die(f"I can't read {path}")
+    except ValueError as error:
+        die(f"{path} isn't valid JSON: {error}")
+
+    if isinstance(raw, dict) and "labels" in raw and "values" in raw:
+        pairs = list(zip(raw["labels"], raw["values"]))
+    elif isinstance(raw, list):
+        pairs = [(item.get("label"), item.get("value")) for item in raw]
+    else:
+        die(
+            'the data should be {"labels": [...], "values": [...]} or a list '
+            'of {"label": ..., "value": ...}'
+        )
+
+    if not pairs:
+        die("there is nothing in that data to draw")
+
+    out = []
+    for label, value in pairs:
+        try:
+            out.append((str(label), float(value)))
+        except (TypeError, ValueError):
+            die(f"'{value}' is not a number, so it cannot be a bar")
+    return out
+
+
+def human(value: float) -> str:
+    if value == int(value):
+        return f"{int(value):,}".replace(",", ".")
+    return f"{value:,.2f}".replace(",", ".")
+
+
+def bar_chart(series, caption: str | None) -> str:
+    top = max(value for _, value in series) or 1
+    count = len(series)
+    slot = (WIDTH - PAD_X * 2) / count
+    bar_w = min(slot * 0.6, 64)
+    floor = HEIGHT - PAD_BOTTOM
+
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {WIDTH} {HEIGHT}" '
+        f'role="img" aria-label="{escape(caption or "Chart")}">',
+        # currentColor throughout so the drawing follows the page it is
+        # inlined into -- including onto paper, where the page turns to
+        # ink on white and a chart with baked-in colours would not.
+        f'<line x1="{PAD_X}" y1="{floor:.1f}" x2="{WIDTH - PAD_X}" y2="{floor:.1f}" '
+        'stroke="currentColor" stroke-opacity="0.25" stroke-width="1"/>',
+    ]
+
+    for index, (label, value) in enumerate(series):
+        height = (value / top) * (HEIGHT - PAD_TOP - PAD_BOTTOM)
+        x = PAD_X + slot * index + (slot - bar_w) / 2
+        y = floor - height
+        parts.append(
+            f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" height="{height:.1f}" '
+            'rx="3" fill="#3ddcff" fill-opacity="0.75"/>'
+        )
+        parts.append(
+            f'<text x="{x + bar_w / 2:.1f}" y="{y - 8:.1f}" text-anchor="middle" '
+            'font-size="13" fill="currentColor" font-family="system-ui, sans-serif">'
+            f"{escape(human(value))}</text>"
+        )
+        parts.append(
+            f'<text x="{x + bar_w / 2:.1f}" y="{floor + 20:.1f}" text-anchor="middle" '
+            'font-size="12" fill="currentColor" fill-opacity="0.65" '
+            f'font-family="system-ui, sans-serif">{escape(label)}</text>'
+        )
+
+    parts.append("</svg>")
+    return "\n".join(parts)
+
+
+def cmd_chart(args):
+    target = view_dir(args.slug)
+    if not target.is_dir():
+        die(f"there's no view called '{args.slug}' yet -- make it first.")
+
+    series = read_series(Path(args.data))
+    svg = bar_chart(series, args.title)
+
+    out = target / args.out
+    if out.resolve().parent != target.resolve():
+        die("the drawing has to go inside the view")
+    out.write_text(svg + "\n")
+
+    print(out)
+    print("Paste the contents of that file inside a <figure> in index.html.")
+
+
+# --------------------------------------------------------------------------
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="agentic-view", description="Build a page for the owner to look at."
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    new = sub.add_parser("new", help="scaffold a new view")
+    new.add_argument("slug", help="lowercase-with-dashes, e.g. june-takings")
+    new.add_argument("--title", required=True, help="what to call it on screen")
+    new.add_argument("--asked", required=True, help="the question it answers")
+    new.add_argument(
+        "--from",
+        dest="source",
+        action="append",
+        help="a file the figures came from; repeat for several",
+    )
+    new.set_defaults(func=cmd_new)
+
+    listing = sub.add_parser("list", help="what has been made already")
+    listing.set_defaults(func=cmd_list)
+
+    chart = sub.add_parser("chart", help="draw a bar chart from real numbers")
+    chart.add_argument("slug")
+    chart.add_argument("--data", required=True, help="a JSON file of labels and values")
+    chart.add_argument("--kind", default="bar", choices=["bar"])
+    chart.add_argument("--out", default="chart.svg")
+    chart.add_argument("--title", help="what the drawing shows")
+    chart.set_defaults(func=cmd_chart)
+
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

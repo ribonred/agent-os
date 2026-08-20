@@ -1,0 +1,65 @@
+<!doctype html>
+<!-- A view is a document, so it is light like paper -- and it prints as
+     what it looks like. The owner can turn it dark from the shell, which
+     rewrites this attribute as the page is served; leave it as it is. -->
+<html lang="en" data-bs-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{title}}</title>
+<!-- Both stylesheets, in this order, and left exactly as they are.
+     Bootstrap gives you layout you already know how to write; the second
+     one makes the result look like this device rather than like every
+     other Bootstrap page, and is what makes it print. Both are on the
+     device -- nothing here is fetched, and nothing can be. -->
+<link rel="stylesheet" href="/_shared/bootstrap.css">
+<link rel="stylesheet" href="/_shared/view.css">
+</head>
+<body>
+<main>
+  <h1>{{title}}</h1>
+
+  <!-- Replace everything from here down. What is below is a worked
+       example of the shapes this stylesheet knows how to set, not
+       furniture to keep.
+
+       Do not add a line saying where the figures came from -- the shell
+       already shows that underneath, read from view.json, and saying it
+       twice reads as a page that does not trust itself.
+
+       No <script>. Nothing here runs, and a script tag is silently
+       ignored rather than failing loudly, so it would look like it
+       worked. Charts come from `agentic-view chart` and get pasted in
+       as SVG. -->
+
+  <ul class="stats">
+    <li><span class="value">0</span><span class="label">A number that matters</span></li>
+  </ul>
+
+  <h2>A heading, if there is more than one thing to say</h2>
+
+  <!-- Bootstrap's grid and utilities are available, so two things side
+       by side is `<div class="row"><div class="col">…`. Reach for them
+       rather than writing your own layout CSS. -->
+
+  <table>
+    <thead>
+      <tr><th>What</th><th class="number">How much</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>A row</td><td class="number">0</td></tr>
+    </tbody>
+    <tfoot>
+      <tr><td>Total</td><td class="number">0</td></tr>
+    </tfoot>
+  </table>
+
+  <figure>
+    <!-- Paste the contents of the file `agentic-view chart` wrote here,
+         inline, rather than linking it: inlined, the drawing follows the
+         page's colours and turns to ink when the owner prints it. -->
+    <figcaption>What the drawing shows.</figcaption>
+  </figure>
+</main>
+</body>
+</html>

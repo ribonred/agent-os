@@ -20,9 +20,27 @@ const collapsed = ref(false);
 const { collapsed: filesCollapsed, restore: restoreFilesPane, set: setFilesCollapsed } =
   useFilesPane();
 
+// Folders and Views are tabs on the one pane, not a third column -- the
+// device sits beside the owner's work, and permanently narrowing that
+// work to hold a second surface costs more than it gives.
+//
+// The tab strip only appears once the device has actually made
+// something. A unit on its first day has made nothing, and shipping
+// every device with an empty tab advertises a feature instead of
+// offering one.
+const { views, tab, load: loadViews } = useViews();
+const hasViews = computed(() => views.value.length > 0);
+
+// Falling back rather than stranding the owner on a tab that no longer
+// has anything behind it.
+watch(hasViews, (any) => {
+  if (!any) tab.value = "folders";
+});
+
 onMounted(async () => {
   collapsed.value = await getChatCollapsed();
   await restoreFilesPane();
+  await loadViews();
   // A screen where both halves are folded away has nothing on it. If a
   // stored pair ever disagrees, the files give way -- the conversation is
   // what the device is for.
@@ -52,9 +70,34 @@ async function setCollapsed(value: boolean) {
     />
     <!-- Kept mounted while folded away rather than torn down: the owner
          gets back the directory they were in, scrolled where they left
-         it, instead of a re-read of their disk. -->
+         it, instead of a re-read of their disk. The same reasoning keeps
+         both tabs mounted and merely hidden. -->
     <main :class="['main', { folded: filesCollapsed }]">
-      <slot />
+      <nav v-if="hasViews" class="tabs" aria-label="What to look at">
+        <button
+          type="button"
+          :class="['tab', { on: tab === 'folders' }]"
+          :aria-current="tab === 'folders'"
+          @click="tab = 'folders'"
+        >
+          Folders
+        </button>
+        <button
+          type="button"
+          :class="['tab', { on: tab === 'views' }]"
+          :aria-current="tab === 'views'"
+          @click="tab = 'views'"
+        >
+          Views
+        </button>
+      </nav>
+
+      <div v-show="tab === 'folders'" class="surface">
+        <slot />
+      </div>
+      <div v-show="hasViews && tab === 'views'" class="surface">
+        <ViewPane />
+      </div>
     </main>
     <button
       v-if="filesCollapsed"
@@ -70,6 +113,17 @@ async function setCollapsed(value: boolean) {
   </div>
 </template>
 
+<!-- Deliberately not scoped: it has to match a class on <body> and a
+     frame inside a child component in the same rule. -->
+<style>
+/* While the divider is being dragged, frames stop taking the pointer.
+   A view is a separate document, and it would otherwise swallow the
+   drag the moment the cursor crossed into it. */
+body.resizing-panes iframe {
+  pointer-events: none;
+}
+</style>
+
 <style scoped>
 .shell {
   display: flex;
@@ -80,12 +134,85 @@ async function setCollapsed(value: boolean) {
 .main {
   flex: 1;
   min-width: 0;
+  /* A column, because the tab strip sits above the surface: sizing a
+     child to the viewport instead would push its last row off-screen by
+     exactly the strip's height. Scrolling belongs to the surface. */
+  display: flex;
+  flex-direction: column;
   height: 100vh;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .main.folded {
   display: none;
+}
+
+/* The tab strip is chrome, so it is quiet: two words, no box, and the
+   current one reads as current by weight rather than by decoration. */
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.6rem 1.75rem 0;
+}
+
+.tab {
+  background: none;
+  border: none;
+  border-radius: 8px;
+  padding: 0.3rem 0.7rem;
+  color: var(--text-secondary);
+  font-family: var(--font-family);
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--text-primary);
+}
+
+.tab.on {
+  background: var(--surface);
+  color: var(--text-primary);
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.surface {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.tabs {
+  flex: 0 0 auto;
+}
+
+/* Printing a view means printing the view, not the room around it. The
+   frame has no same-origin, so it cannot be told to print itself --
+   this window prints, and everything that is not the page gets out of
+   the way. */
+@media print {
+  .shell {
+    display: block;
+    height: auto;
+    overflow: visible;
+  }
+
+  /* The conversation, the resize border and the tab strip are the room;
+     none of them belong on paper. `.pane` is reachable from here because
+     a component's root element carries its parent's scope. */
+  .pane,
+  .tabs,
+  .files-rail {
+    display: none !important;
+  }
+
+  .main.folded {
+    display: block;
+  }
 }
 
 /* The way back, and the whole width of it is the target -- the same rail

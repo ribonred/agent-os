@@ -56,6 +56,30 @@ export async function setFilesCollapsed(collapsed: boolean): Promise<void> {
   }
 }
 
+/// How the owner reads a view. Light by default: a view is a document,
+/// and it is printed onto white paper -- see design/DESIGN.md. The shell
+/// around it stays dark either way.
+export type ViewTheme = "light" | "dark";
+
+export async function getViewTheme(): Promise<ViewTheme> {
+  try {
+    const store = await getStore();
+    return (await store.get<ViewTheme>("viewTheme")) === "dark" ? "dark" : "light";
+  } catch {
+    return "light";
+  }
+}
+
+export async function setViewTheme(theme: ViewTheme): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set("viewTheme", theme);
+    await store.save();
+  } catch {
+    // The page is already showing the choice; only its memory is lost.
+  }
+}
+
 export const DEFAULT_CHAT_WIDTH = 460;
 export const MIN_CHAT_WIDTH = 320;
 export const MAX_CHAT_WIDTH = 800;

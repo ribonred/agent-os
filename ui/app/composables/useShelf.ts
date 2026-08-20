@@ -8,6 +8,9 @@ import { shelfErrorMessage } from "~/lib/shelfErrors";
 
 export type EntryKind =
   | "folder"
+  /// A folder holding a page the device built. Marked apart because the
+  /// row opens the page rather than the directory.
+  | "view"
   | "text"
   | "table"
   | "image"
