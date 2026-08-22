@@ -75,6 +75,28 @@ libpango-1.0-0
 gnome-keyring
 libpam-gnome-keyring
 
+# --- voice ---------------------------------------------------------------
+# The shell records the owner's voice through the webview, and WebKitGTK
+# does its capture and encoding with GStreamer rather than with anything
+# of its own. Without these the microphone opens and produces nothing,
+# which looks exactly like a broken microphone.
+#
+# Named here for the same reason the shell's own libraries are: a change
+# to the desktop metapackage must not be able to take the device's ears
+# away silently.
+#   base -- the opus encoder
+#   good -- the webm/matroska muxer the recorder writes into
+#   bad  -- libgsttranscode, which provides `uritranscodebin`. WebKitGTK
+#           builds its recording pipeline around that element and fails
+#           with "GStreamer element uritranscodebin not found" without
+#           it. Not pulled in by ubuntu-desktop, and confirmed missing on
+#           a real install rather than assumed present.
+#   pipewire -- the source that reaches the session's audio server
+gstreamer1.0-plugins-base
+gstreamer1.0-plugins-good
+gstreamer1.0-plugins-bad
+gstreamer1.0-pipewire
+
 # --- fonts ---------------------------------------------------------------
 # Several supported languages need non-Latin scripts, and the UI relies
 # on the system font stack rather than a bundled webfont. CJK is a

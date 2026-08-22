@@ -45,6 +45,28 @@ const {
   newConversation,
 } = useConversation();
 
+// Speaking to the device instead of typing to it. The pane keeps every
+// other job it has: the transcript above is untouched and keeps
+// streaming while this is on (design/DESIGN.md, "Voice").
+const {
+  micMode,
+  configured: voiceConfigured,
+  recording: listening,
+  hush,
+  setMicMode,
+  restoreMicMode,
+  checkConfigured: checkVoice,
+} = useVoice();
+onMounted(async () => {
+  await restoreMicMode();
+  await checkVoice();
+});
+
+// The orb is one presence with one rhythm, so voice and the turn itself
+// cannot both be driving it. Listening wins while it lasts: it is the
+// only one of these states the owner is causing rather than watching.
+const paneOrbState = computed(() => (listening.value ? "listening" : orbState.value));
+
 // The list of earlier conversations covers this pane while it is open.
 const history = ref(false);
 
@@ -246,6 +268,14 @@ async function onSubmit() {
   await autoscroll();
 }
 
+/// Stopping a turn stops the voice with it. Half an answer still being
+/// read out after the owner asked it to stop is the device ignoring
+/// them.
+function onStop() {
+  hush();
+  stop();
+}
+
 async function onPick(option: string) {
   await send(option);
   await autoscroll();
@@ -265,13 +295,13 @@ async function onPick(option: string) {
         :aria-expanded="false"
         @click="emit('update:collapsed', false)"
       >
-        <PresenceOrb :size="40" :orb-state="orbState" />
+        <PresenceOrb :size="40" :orb-state="paneOrbState" />
       </button>
     </template>
 
     <template v-else>
       <header @mousedown="onChromeMouseDown" @dblclick="onChromeDoubleClick">
-        <PresenceOrb :size="56" :orb-state="orbState" />
+        <PresenceOrb :size="56" :orb-state="paneOrbState" />
         <div class="controls">
           <!-- Starting a new subject and going back to an old one, side
                by side: they are the same decision seen from either end,
@@ -377,7 +407,12 @@ async function onPick(option: string) {
         {{ currentModel.name }}
       </button>
 
-      <form @submit.prevent="onSubmit">
+      <!-- Mic mode takes the input area and nothing above it. The
+           transcript keeps streaming behind this, which is the whole
+           point of it being here rather than over the pane. -->
+      <VoiceLayer v-if="micMode" variant="pane" />
+
+      <form v-else @submit.prevent="onSubmit">
         <ChatInput
           v-model="input"
           variant="pane"
@@ -385,8 +420,22 @@ async function onPick(option: string) {
           :disabled="busy || daemonError !== null"
           @submit="onSubmit"
         />
-        
-        <button v-if="busy" type="button" class="stop" @click="stop">
+
+        <!-- Offered only on a device that can actually speak: a control
+             that explains itself by failing is worse than one that was
+             never there. -->
+        <button
+          v-if="voiceConfigured"
+          type="button"
+          class="mic"
+          aria-label="Talk instead of typing"
+          title="Talk instead of typing"
+          @click="setMicMode(true)"
+        >
+          🎙
+        </button>
+
+        <button v-if="busy" type="button" class="stop" @click="onStop">
           Stop
         </button>
       </form>
@@ -651,6 +700,31 @@ form {
   display: flex;
   align-items: flex-end;
   gap: 0.5rem;
+}
+
+/* Beside the composer, not inside it: the input stays one bare control,
+   and this is a different question -- how to talk to the device, not
+   what to say. Quiet, like the model chip above it. */
+.mic {
+  flex: 0 0 auto;
+  align-self: flex-end;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.05rem;
+  line-height: 1;
+  padding: 0.75rem 0.4rem;
+  cursor: pointer;
+}
+
+.mic:hover {
+  color: var(--text-primary);
+}
+
+.mic:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 8px;
 }
 
 .stop {

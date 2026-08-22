@@ -25,9 +25,29 @@ const {
 } = useConversation();
 const { holdingOpen, toggle, expand, drag } = useWindowMode();
 
+// The pill is where speaking to the device earns the most: the owner's
+// hands are on the work they are actually doing, and this is the shape
+// the assistant is in while they do it. Same layer, same rules -- what
+// there is to read stays readable while it talks.
+const {
+  micMode,
+  configured: voiceConfigured,
+  recording: listening,
+  setMicMode,
+  restoreMicMode,
+  checkConfigured: checkVoice,
+} = useVoice();
+
+const pillOrbState = computed(() => (listening.value ? "listening" : orbState.value));
+
 const scroller = ref<HTMLElement | null>(null);
 
 onMounted(async () => {
+  // The device can be switched on straight into this shape, so mic mode
+  // is restored here as well as in the full pane rather than only where
+  // the owner happened to turn it on.
+  await restoreMicMode();
+  await checkVoice();
   await connect();
   // The device can be switched on straight into this shape, in which
   // case nothing else has put the last conversation back yet.
@@ -137,16 +157,31 @@ async function onSubmit() {
         aria-label="Move the assistant"
         @mousedown="drag"
       >
-        <PresenceOrb :size="34" :orb-state="orbState" />
+        <PresenceOrb :size="34" :orb-state="pillOrbState" />
       </button>
 
-      <ChatInput
-        v-model="input"
-        variant="pill"
-        placeholder="Say something…"
-        :disabled="busy || daemonError !== null"
-        @submit="onSubmit"
-      />
+      <VoiceLayer v-if="micMode" variant="pill" class="voice-bar" />
+
+      <template v-else>
+        <ChatInput
+          v-model="input"
+          variant="pill"
+          placeholder="Say something…"
+          :disabled="busy || daemonError !== null"
+          @submit="onSubmit"
+        />
+
+        <button
+          v-if="voiceConfigured"
+          type="button"
+          class="mic"
+          aria-label="Talk instead of typing"
+          title="Talk instead of typing"
+          @click="setMicMode(true)"
+        >
+          🎙
+        </button>
+      </template>
 
       <button
         type="button"
@@ -162,6 +197,34 @@ async function onSubmit() {
 </template>
 
 <style scoped>
+/* The layer sits in the bar where the input was, so the pill keeps its
+   one-line shape and the orb stays the handle. */
+.voice-bar {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.mic {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0.35rem;
+  cursor: pointer;
+}
+
+.mic:hover {
+  color: var(--text-primary);
+}
+
+.mic:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
 .pill {
   display: flex;
   flex-direction: column;

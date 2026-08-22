@@ -107,6 +107,14 @@ onBeforeUnmount(endHold);
       <span class="chevron" aria-hidden="true">›</span>
     </NuxtLink>
 
+    <NuxtLink to="/settings/voice" class="setting link">
+      <div class="text">
+        <h2>Talking out loud</h2>
+        <p>Whether you can speak to me, and whether I answer aloud.</p>
+      </div>
+      <span class="chevron" aria-hidden="true">›</span>
+    </NuxtLink>
+
     <!-- Held, not clicked, and unlabelled: the command behind it does
          not exist in a shipped build. -->
     <button

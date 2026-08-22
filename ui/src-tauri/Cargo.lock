@@ -2221,6 +2221,7 @@ dependencies = [
  "tauri-plugin-store",
  "tauri-runtime",
  "tokio",
+ "webkit2gtk",
 ]
 
 [[package]]

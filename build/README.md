@@ -189,11 +189,34 @@ before running `make-image.sh`:
 ```toml
 [openrouter]
 api_key = "..."
+
+[elevenlabs]
+api_key = "..."
 ```
+
+One section per service, and they are independent: a unit can be
+provisioned for one and not the other. `openrouter` is what the device
+thinks with when it thinks off-device; `elevenlabs` is what it listens
+and speaks with. A missing section is simply a device where the owner
+supplies that key themselves, or does without.
 
 Costs: the key lands in the image, and every unit flashed from it shares
 that key. Fine for bench and small batches; production should inject
 per-unit keys as a factory step.
+
+## Voice
+
+Optional, and off on a unit with no `elevenlabs` key — the owner types
+instead, and nothing else about the device changes.
+
+Two things it needs that the image cannot supply:
+
+- **A microphone.** The mini-PC tier has none of its own, so a headset
+  or USB microphone is part of what ships in the box, or voice is dark on
+  that unit. The shell says so in words when it cannot find one.
+- **Egress to `api.elevenlabs.io`.** Speech is recognised and generated
+  off the device. A site that firewalls outbound HTTPS has a device that
+  listens and never answers.
 
 ## Local inference
 

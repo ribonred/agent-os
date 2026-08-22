@@ -111,10 +111,14 @@ Type=Application
 Name=Assistant
 Exec=/usr/local/bin/matoakaui
 Icon=matoakaui
-# The assistant is the device's reason to exist: if it dies, the session
-# should bring it back rather than leave the owner at an empty desktop.
 X-GNOME-Autostart-enabled=true
-X-GNOME-Autostart-Phase=Applications
+# No X-GNOME-Autostart-Phase here, deliberately. Setting one marks the
+# entry as a session service, and GNOME on this release no longer starts
+# those -- it logs "sets X-GNOME-Autostart-Phase, but gnome-session no
+# longer manages session services" and skips the app entirely. Measured
+# on a real unit: every autostart entry that set a phase was skipped and
+# every one that did not was launched, so the device booted to an empty
+# desktop with no assistant on it. Adding a phase back reintroduces that.
 NoDisplay=true
 StartupWMClass=matoakaui
 EOF

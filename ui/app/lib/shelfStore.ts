@@ -56,6 +56,30 @@ export async function setFilesCollapsed(collapsed: boolean): Promise<void> {
   }
 }
 
+/// Whether the device is listening for the owner's voice rather than
+/// their typing. Remembered, because it is how they use the device
+/// rather than something they chose for one question -- someone whose
+/// hands are busy at a counter should not have to turn it back on every
+/// morning.
+export async function getMicMode(): Promise<boolean> {
+  try {
+    const store = await getStore();
+    return (await store.get<boolean>("micMode")) ?? false;
+  } catch {
+    return false;
+  }
+}
+
+export async function setMicMode(on: boolean): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set("micMode", on);
+    await store.save();
+  } catch {
+    // The mode still holds for this session.
+  }
+}
+
 /// How the owner reads a view. Light by default: a view is a document,
 /// and it is printed onto white paper -- see design/DESIGN.md. The shell
 /// around it stays dark either way.

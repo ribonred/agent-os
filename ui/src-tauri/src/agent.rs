@@ -77,6 +77,17 @@ const CHAT_PROTOCOL: &str = include_str!("../../../brain/chat-protocol.md");
 // process arbitrary system-prompt text; the only free-text influence is
 // the owner-chosen name, sanitized below.
 
+/// Added for a turn the owner spoke and will hear read back.
+///
+/// Short by design. The full reasoning is prose in brain/chat-protocol.md
+/// under "When the owner is speaking to you", which the agent already has
+/// in the overlay -- this is the switch that tells it which turn that
+/// section applies to, not a second copy of the rules. Change the doc
+/// first, then this line.
+const SPOKEN_OVERLAY: &str = "This turn was spoken aloud and your reply will be read back \
+     out loud. Follow \"When the owner is speaking to you\": a sentence or two, no tables, \
+     no lists, no headings, no code, and nothing that only makes sense on a screen.";
+
 const NAME_MAX_CHARS: usize = 60;
 
 fn persona_overlay(persona: &str) -> Option<&'static str> {
@@ -890,6 +901,7 @@ pub async fn agent_chat(
     input: String,
     context_paths: Option<Vec<String>>,
     current_folder: Option<String>,
+    spoken: Option<bool>,
     app: tauri::AppHandle,
     session: tauri::State<'_, AgentSession>,
     on_event: Channel<serde_json::Value>,
@@ -911,10 +923,18 @@ pub async fn agent_chat(
         context_paths.as_deref().unwrap_or(&[]),
         current_folder.as_deref(),
     );
-    let overlay = match context {
+    let mut overlay = match context {
         Some(context) => format!("{}\n\n{context}", chat_overlay(&app)),
         None => chat_overlay(&app),
     };
+    // Last, so it is the nearest instruction to the turn it governs. A
+    // reply that will be heard rather than read is a different reply --
+    // read aloud, a table is a stream of numbers with nothing holding
+    // them apart -- and the agent has no other way to know which one
+    // this is.
+    if spoken == Some(true) {
+        overlay = format!("{overlay}\n\n{SPOKEN_OVERLAY}");
+    }
 
     
     // Keep the durable USER.md language pin in sync with setup. Hermes

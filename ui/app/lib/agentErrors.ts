@@ -13,18 +13,31 @@
 // running but rejected us" call for different things from the owner, and
 // flattening them would trade one unhelpful message for another.
 
-type Domain = "chat" | "setup" | "cloudKey";
+type Domain = "chat" | "setup" | "cloudKey" | "voice";
 
 /// What the owner sees, and -- where there is one -- what they can do.
 const GENERIC: Record<Domain, string> = {
   chat: "I couldn't reach my assistant just now.",
   setup: "I couldn't reach my assistant just now. Setup can continue once it's back.",
   cloudKey: "I couldn't save that just now.",
+  voice: "I couldn't speak just now. You can still type to me.",
 };
 
 /// Ordered most specific first: the first match wins, so a narrow
 /// signature is never shadowed by a broader one.
 const PATTERNS: Array<{ match: RegExp; message: string }> = [
+  // Speech is optional, so its absence is a state to explain rather than
+  // a fault to apologise for -- and it has a fix the owner can carry out.
+  {
+    match: /no speech key configured/i,
+    message: "I need a speech connection before I can talk. You'll find it in Settings.",
+  },
+  // The recording arrived but there was nothing in it. Said as a fact,
+  // not as a failure: a shop counter is a loud room.
+  {
+    match: /recording was empty|nothing to say|returned no audio/i,
+    message: "I didn't catch that.",
+  },
   // The gateway is not running, or not listening yet. The most common
   // real failure, and the one with an honest thing to say about it.
   {
@@ -87,6 +100,15 @@ export function agentErrorMessage(domain: Domain, raw: unknown): string {
 
   const hit = PATTERNS.find((p) => p.match.test(text));
   return hit ? hit.message : GENERIC[domain];
+}
+
+/// Anything that went wrong while listening or speaking.
+///
+/// Voice is the one part of the device that can fail while everything
+/// else still works, so its wording always leaves the owner the way
+/// round: they can type.
+export function voiceErrorMessage(raw: unknown): string {
+  return agentErrorMessage("voice", raw);
 }
 
 /// Errors that arrive as a stream event rather than a thrown value. Same

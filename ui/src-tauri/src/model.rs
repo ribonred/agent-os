@@ -64,14 +64,7 @@ async fn aggregator_catalogue(refresh: bool) -> Option<Vec<String>> {
         }
     }
 
-    let tls = hyper_rustls::HttpsConnectorBuilder::new()
-        .with_webpki_roots()
-        .https_only()
-        .enable_http1()
-        .build();
-    let client: hyper_util::client::legacy::Client<_, Full<Bytes>> =
-        hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
-            .build(tls);
+    let client = crate::http::https_client();
 
     let request = hyper::Request::get(AGGREGATOR_CATALOGUE)
         .header("accept", "application/json")

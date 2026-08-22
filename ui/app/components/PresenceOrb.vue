@@ -4,23 +4,34 @@
 // composition; `grounded` adds the light pool for the idle/home screen
 // where the orb sits like a physical object. `orbState` changes rhythm,
 // not shape (Motion spec): the orb's tempo IS the status indicator.
-type OrbState = "idle" | "thinking" | "speaking";
+type OrbState = "idle" | "listening" | "thinking" | "speaking";
 
 const props = withDefaults(
   defineProps<{ size?: number; grounded?: boolean; orbState?: OrbState }>(),
   { size: 160, grounded: false, orbState: "idle" },
 );
 
-const rhythm: Record<OrbState, { breathe: string; revolve: string }> = {
-  idle: { breathe: "6s", revolve: "20s" },
-  thinking: { breathe: "1.8s", revolve: "6s" },
-  speaking: { breathe: "3.2s", revolve: "11s" },
+// Rhythm and brightness only -- the layer structure never changes per
+// state (design/DESIGN.md). `listening` is the one state the owner is
+// causing rather than watching, so it is both the fastest breath and the
+// brightest atmosphere: it has to be readable out of the corner of an
+// eye as "it is hearing me", from across a counter.
+const rhythm: Record<
+  OrbState,
+  { breathe: string; revolve: string; inner: string; mid: string }
+> = {
+  idle: { breathe: "6s", revolve: "20s", inner: "22%", mid: "10%" },
+  listening: { breathe: "1.4s", revolve: "9s", inner: "34%", mid: "16%" },
+  thinking: { breathe: "1.8s", revolve: "6s", inner: "22%", mid: "10%" },
+  speaking: { breathe: "3.2s", revolve: "11s", inner: "28%", mid: "13%" },
 };
 
 const style = computed(() => ({
   "--orb-size": `${props.size}px`,
   "--orb-breathe": rhythm[props.orbState].breathe,
   "--orb-revolve": rhythm[props.orbState].revolve,
+  "--orb-atmosphere-inner": rhythm[props.orbState].inner,
+  "--orb-atmosphere-mid": rhythm[props.orbState].mid,
 }));
 </script>
 
@@ -51,10 +62,15 @@ const style = computed(() => ({
   inset: -55%;
   background: radial-gradient(
     circle,
-    color-mix(in srgb, var(--orb-cyan) 22%, transparent) 0%,
-    color-mix(in srgb, var(--orb-violet) 10%, transparent) 45%,
+    color-mix(in srgb, var(--orb-cyan) var(--orb-atmosphere-inner, 22%), transparent) 0%,
+    color-mix(in srgb, var(--orb-violet) var(--orb-atmosphere-mid, 10%), transparent) 45%,
     transparent 70%
   );
+  /* The colour moves with the state as well as the tempo, so a change
+     of rhythm is legible in a still frame and not only in motion --
+     which is what someone glancing over from the other side of a
+     counter actually gets. */
+  transition: background 0.4s ease;
   animation: breathe var(--orb-breathe, 6s) ease-in-out infinite;
 }
 
@@ -161,6 +177,13 @@ const style = computed(() => ({
   .core,
   .pool {
     animation: none;
+  }
+
+  /* The brightness still changes -- it is what the state IS, and losing
+     it would leave the orb saying nothing at all here. It just changes
+     at once instead of easing. */
+  .atmosphere {
+    transition: none;
   }
 }
 </style>

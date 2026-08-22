@@ -43,6 +43,14 @@ hyper-util = { version = "0.1", features = ["client-legacy", "http1", "tokio"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "tls12", "ring", "webpki-roots"] }
 tokio = { version = "1", features = ["sync", "time"] }
 gtk = "0.18"
+# For the microphone only. WebKitGTK ships with the media-stream feature
+# off and denies every permission request it is not asked about, so
+# getUserMedia fails in the page with no way for the page to fix it --
+# both switches live out here. Version and feature are pinned to exactly
+# what the webview layer already links: a second, differently-configured
+# copy of these bindings compiles cleanly and then talks to a webview
+# that is not the one on screen.
+webkit2gtk = { version = "=2.0.2", features = ["v2_38"] }
 
 [dev-dependencies]
 # For the ignored live-gateway test only (cargo test -- --ignored).

@@ -533,6 +533,54 @@ chat app skin:
   constitution.md forbids surfacing error codes and system state, and
   a raw error string passed straight through to the UI is exactly that.
 
+### Voice
+
+The owner speaks to the device and hears it answer. On a front desk or a
+shop counter this is the interaction that actually fits the room --
+typing is what you fall back to when you cannot speak, not the other way
+round. It is a layer over the conversation, never a second conversation:
+what is said aloud is written down, and what is written is what would
+have been written had it been typed.
+
+- **Mic mode is a mode the owner turns on**, from a control beside the
+  composer, and it stays on until they turn it off. Not a per-message
+  decision: someone standing at a counter with their hands full should
+  not have to re-arm the device for every question.
+- **Hold to talk, release to send.** One control, one gesture, and
+  nothing happens while it is not held. A device that listens
+  continuously is a device that has to be *trusted* not to; a device
+  that only listens while a button is physically down is one the owner
+  can see the state of. It also keeps a noisy shop from talking to it by
+  accident, which is the failure that would make the whole feature get
+  switched off.
+- **The layer covers the input, never the transcript.** Mic mode raises
+  a layer over the composer, the context chip and the model chip -- the
+  bottom of the pane. Everything above it keeps streaming exactly as it
+  does when typing: turns appear, the reply types itself out, and the
+  owner watches the device answer while it is speaking. Turning mic mode
+  off gives the composer back with the whole exchange already in place.
+  Covering the conversation to show that a conversation is happening is
+  the mistake this rule exists to prevent.
+- **The orb carries the state**, as it does everywhere else: `listening`
+  while the control is held, `thinking` between release and the first
+  token, `speaking` while it talks. Rhythm only -- the layer structure
+  never changes, and the orb is on screen in every voice state.
+- **One line of state, in the owner's words.** "Hold to talk",
+  "Listening…", "One moment…". Never a level meter, never a waveform:
+  those are instruments for someone tuning a recording, and this owner
+  is asking a question.
+- **A spoken reply is a spoken reply.** Two sentences, no tables, no
+  bullet lists, no code read aloud. Anything longer is something to
+  *look* at, which is what a view is for. The device says what it built
+  and offers it, rather than reading it out.
+- **What is missing is spoken, not hidden.** No microphone plugged in,
+  no voice service configured, no network -- each says so in the layer,
+  in owner language, and the device stays usable by typing. "I can't
+  hear anything plugged in" is the message; the engine's own refusal
+  goes to the log. Errors here follow the same rule as everywhere else
+  on this surface: never a toast, and never the system's own words.
+
+
 ## The file view
 
 The other half of the main surface, beside the conversation. It is **a

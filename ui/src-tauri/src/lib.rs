@@ -3,11 +3,13 @@ mod approval_mode;
 mod cloud_key;
 mod dev;
 mod hermes_config;
+mod http;
 mod model;
 mod onboarding;
 mod sessions;
 mod shelf;
 mod views;
+mod voice;
 mod window_mode;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -52,6 +54,56 @@ pub fn run() {
                 }
             }
 
+            // The microphone, which is off twice over in this engine.
+            //
+            // WebKitGTK ships with media-stream support disabled, and
+            // separately denies any permission the embedder does not
+            // answer -- so a page calling getUserMedia gets a refusal
+            // that no amount of frontend code can undo. Both switches
+            // are here, and neither is a prompt: the owner already said
+            // yes by holding down a talk button on a device they bought
+            // to talk to, and a second dialog asking them to confirm it
+            // is the operating system leaking through the appliance.
+            //
+            // Deliberately narrow. Only a request for a capture device
+            // is allowed, and only on the shell's own window; a model-
+            // authored page runs in a `view://` frame, is a separate
+            // origin, and falls through to WebKitGTK's own denial.
+            #[cfg(target_os = "linux")]
+            if let Some(window) = tauri::Manager::get_webview_window(app, "main") {
+                if let Err(error) = window.with_webview(|webview| {
+                    use webkit2gtk::glib::prelude::Cast;
+                    use webkit2gtk::{
+                        PermissionRequestExt, SettingsExt, UserMediaPermissionRequest,
+                        UserMediaPermissionRequestExt, WebViewExt,
+                    };
+
+                    let view = webview.inner();
+                    if let Some(settings) = WebViewExt::settings(&view) {
+                        settings.set_enable_media_stream(true);
+                    }
+                    view.connect_permission_request(|_, request| {
+                        let Some(media) = request.downcast_ref::<UserMediaPermissionRequest>()
+                        else {
+                            return false;
+                        };
+                        // The shell records sound and nothing else. A
+                        // camera request is not part of this product and
+                        // is left to be denied.
+                        if !media.is_for_audio_device() || media.is_for_video_device() {
+                            return false;
+                        }
+                        media.allow();
+                        true
+                    });
+                }) {
+                    // Not fatal: everything except speaking to the device
+                    // still works, and the voice layer says so in words
+                    // the owner can act on rather than failing silently.
+                    log::warn!("could not enable the microphone: {error}");
+                }
+            }
+
             // The device opens in whatever shape it was last left in.
             // Applied here rather than from the frontend so the window is
             // the right size and place before anything is painted --
@@ -90,6 +142,11 @@ pub fn run() {
             cloud_key::cloud_key_save,
             cloud_key::cloud_key_status,
             cloud_key::cloud_key_delete,
+            cloud_key::voice_key_save,
+            cloud_key::voice_key_status,
+            cloud_key::voice_key_delete,
+            voice::voice_transcribe,
+            voice::voice_speak,
             agent::agent_status,
             agent::agent_chat,
             agent::agent_onboarding_chat,

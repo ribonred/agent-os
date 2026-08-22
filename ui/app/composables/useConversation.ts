@@ -49,7 +49,9 @@ type StreamEvent =
   | { type: "cancelled" }
   | { type: "error"; message: string };
 
-export type OrbState = "idle" | "thinking" | "speaking";
+/// The device's presence, as a rhythm. `listening` belongs to voice
+/// mode; the other three are reached by any turn.
+export type OrbState = "idle" | "listening" | "thinking" | "speaking";
 
 export type ConversationMode = "chat" | "onboarding";
 
@@ -187,7 +189,7 @@ export function useConversation(mode: ConversationMode = "chat") {
   ///
   /// Returns whatever the command resolved to, which is how setup learns
   /// its interview is finished.
-  async function runTurn(content: string | null): Promise<boolean> {
+  async function runTurn(content: string | null, byVoice = false): Promise<boolean> {
     busy.value = true;
     streaming.value = false;
     awaitingApproval.value = false;
@@ -223,6 +225,11 @@ export function useConversation(mode: ConversationMode = "chat") {
 
       await invoke("agent_chat", {
         input: content ?? "",
+        // Whether this turn was spoken. The native side turns it into a
+        // line in the per-turn overlay, because a reply that will be
+        // heard is a different reply -- read aloud, a table is a stream
+        // of numbers with nothing holding them apart.
+        spoken: byVoice,
         // The native layer turns these into a sentence: where the owner
         // is and which thing they mean, written from their own files
         // downward and never absolutely.
@@ -357,12 +364,17 @@ export function useConversation(mode: ConversationMode = "chat") {
   ///
   /// Resolves to whether this turn ended the conversation, which only
   /// setup asks about -- normal chat has no end.
-  async function send(spoken?: string): Promise<boolean> {
-    const content = (spoken ?? input.value).trim();
+  /// `said` is what to send instead of what is in the composer -- an
+  /// answer the owner tapped, or one they spoke. `byVoice` is how it got
+  /// here, which only changes how the reply is written, never where it
+  /// goes: a spoken turn and a typed one land in the same conversation
+  /// and are indistinguishable afterwards.
+  async function send(said?: string, byVoice = false): Promise<boolean> {
+    const content = (said ?? input.value).trim();
     if (!content || busy.value) return false;
     input.value = "";
     try {
-      return await runTurn(content);
+      return await runTurn(content, byVoice);
     } catch (error) {
       entries.value.push({
         kind: "error",
